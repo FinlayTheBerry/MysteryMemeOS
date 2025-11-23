@@ -2,7 +2,9 @@
 #include "../build/assets_h/mysterysong_raw.h"
 #include <alloca.h> // Required by asoundlib.h on musl
 #include <alsa/asoundlib.h>
+#include <alsa/mixer.h>
 #include <stdbool.h>
+#include <string.h>
 
 static uint32_t get_sample_rate()
 {
@@ -39,9 +41,10 @@ void audio_init()
     int card_id = -1;
     while (true)
     {
+        char *card_name = NULL;
+        char *card_human_name = NULL;
+        snd_mixer_t *mixer = NULL;
         snd_ctl_t *ctl = NULL;
-        char card_name[256];
-
         if ((error_code = snd_card_next(&card_id)) != 0)
         {
             printf("Audio error - snd_card_next failed - %s\n", snd_strerror(error_code));
@@ -53,10 +56,72 @@ void audio_init()
             break;
         }
 
+        card_name = (char *)malloc(snprintf(NULL, 0, "hw:%d", card_id) + 1);
         sprintf(card_name, "hw:%d", card_id);
-
-        printf("Found card %s.\n", card_name);
+        if ((error_code = snd_card_get_name(card_id, &card_human_name)) != 0)
+        {
+            const char unknown_card_name[] = "Unnamed sound card";
+            card_human_name = malloc(sizeof(unknown_card_name));
+            memcpy(card_human_name, unknown_card_name, sizeof(unknown_card_name));
+        }
+        printf("Audio info - Found sound card %s at %s\n", card_human_name, card_name);
         fflush(stdout);
+
+        if ((error_code = snd_mixer_open(&mixer, 0)) != 0)
+        {
+            printf("Audio error - snd_mixer_open failed - %s\n", snd_strerror(error_code));
+            fflush(stdout);
+            goto cleanup_card;
+        }
+        if ((error_code = snd_mixer_attach(mixer, card_name)) != 0)
+        {
+            printf("Audio error - snd_mixer_attach failed - %s\n", snd_strerror(error_code));
+            fflush(stdout);
+            goto cleanup_card;
+        }
+        if ((error_code = snd_mixer_selem_register(mixer, NULL, NULL)) != 0)
+        {
+            printf("Audio error - snd_mixer_selem_register failed - %s\n", snd_strerror(error_code));
+            fflush(stdout);
+            goto cleanup_card;
+        }
+        if ((error_code = snd_mixer_load(mixer)) != 0)
+        {
+            printf("Audio error - snd_mixer_load failed - %s\n", snd_strerror(error_code));
+            fflush(stdout);
+            goto cleanup_card;
+        }
+        // elem is a pointer to mixer data and doesn't need to be freed. It's freed along with the mixer.
+        snd_mixer_elem_t *elem = NULL;
+        for (elem = snd_mixer_first_elem(mixer); elem; elem = snd_mixer_elem_next(elem))
+        {
+            const char *elem_name = snd_mixer_selem_get_name(elem);
+            int elem_index = snd_mixer_selem_get_index(elem);
+            if (snd_mixer_selem_has_playback_switch(elem))
+            {
+                printf("Audio Info - %s has control %s,%d with mute toggle. Unmuting...\n", card_name, elem_name, elem_index);
+                if ((error_code = snd_mixer_selem_set_playback_switch_all(elem, 1)) != 0)
+                {
+                    printf("Audio error - snd_mixer_selem_set_playback_switch_all failed - %s\n", snd_strerror(error_code));
+                    fflush(stdout);
+                }
+            }
+            if (snd_mixer_selem_has_playback_volume(elem))
+            {
+                printf("Audio Info - %s has control %s,%d with volume. Setting to max...\n", card_name, elem_name, elem_index);
+                long min_volume, max_volume;
+                if ((error_code = snd_mixer_selem_get_playback_volume_range(elem, &min_volume, &max_volume)) != 0)
+                {
+                    printf("Audio error - snd_mixer_selem_get_playback_volume_range failed - %s\n", snd_strerror(error_code));
+                    fflush(stdout);
+                }
+                else if ((error_code = snd_mixer_selem_set_playback_volume_all(elem, max_volume)) != 0)
+                {
+                    printf("Audio error - snd_mixer_selem_set_playback_volume_all failed - %s\n", snd_strerror(error_code));
+                    fflush(stdout);
+                }
+            }
+        }
 
         if ((error_code = snd_ctl_open(&ctl, card_name, 0)) != 0)
         {
@@ -64,12 +129,10 @@ void audio_init()
             fflush(stdout);
             goto cleanup_card;
         }
-
         int device_id = -1;
         while (true)
         {
             struct device_context *device = NULL;
-
             if ((error_code = snd_ctl_pcm_next_device(ctl, &device_id)) != 0)
             {
                 printf("Audio error - snd_ctl_pcm_next_device failed - %s\n", snd_strerror(error_code));
@@ -80,49 +143,40 @@ void audio_init()
             {
                 break;
             }
-
             device = (struct device_context *)calloc(1, sizeof(struct device_context));
             device->card_id = card_id;
             device->device_id = device_id;
-
             char device_name[256];
             sprintf(device_name, "hw:%d,%d", device->card_id, device->device_id);
-
-            printf("Found device %s.\n", device_name);
+            printf("Audio info - Found device %s.\n", device_name);
             fflush(stdout);
-
             if ((error_code = snd_pcm_open(&device->handle, device_name, SND_PCM_STREAM_PLAYBACK, 0)) != 0)
             {
                 printf("Audio error - snd_pcm_open failed - %s\n", snd_strerror(error_code));
                 fflush(stdout);
                 goto cleanup_device;
             }
-
             snd_pcm_hw_params_t *params;
             snd_pcm_hw_params_alloca(&params);
             snd_pcm_hw_params_any(device->handle, params);
-
             if ((error_code = snd_pcm_hw_params_set_access(device->handle, params, SND_PCM_ACCESS_RW_INTERLEAVED)) != 0)
             {
                 printf("Audio error - snd_pcm_hw_params_set_access failed for SND_PCM_ACCESS_RW_INTERLEAVED - %s\n", snd_strerror(error_code));
                 fflush(stdout);
                 goto cleanup_device;
             }
-
             if ((error_code = snd_pcm_hw_params_set_format(device->handle, params, SND_PCM_FORMAT_S16_LE)) != 0)
             {
                 printf("Audio error - snd_pcm_hw_params_set_format failed for SND_PCM_FORMAT_S32_LE - %s\n", snd_strerror(error_code));
                 fflush(stdout);
                 goto cleanup_device;
             }
-
             if ((error_code = snd_pcm_hw_params_set_channels(device->handle, params, get_channel_count())) != 0)
             {
                 printf("Audio error - snd_pcm_hw_params_set_channels failed - %s\n", snd_strerror(error_code));
                 fflush(stdout);
                 goto cleanup_device;
             }
-
             int dir = 0;
             unsigned int samplerate = get_sample_rate();
             if ((error_code = snd_pcm_hw_params_set_rate_near(device->handle, params, &samplerate, &dir)) != 0 || samplerate != get_sample_rate())
@@ -131,35 +185,46 @@ void audio_init()
                 fflush(stdout);
                 goto cleanup_device;
             }
-
             if ((error_code = snd_pcm_hw_params(device->handle, params)) != 0)
             {
                 printf("Audio error - snd_pcm_hw_params failed - %s\n", snd_strerror(error_code));
                 fflush(stdout);
                 goto cleanup_device;
             }
-
             if ((error_code = snd_pcm_prepare(device->handle)) != 0)
             {
                 printf("Audio error - snd_pcm_prepare failed - %s\n", snd_strerror(error_code));
                 fflush(stdout);
                 goto cleanup_device;
             }
-
             devices[device_count] = device;
             device_count++;
             device = NULL;
 
         cleanup_device:
-        if(device != NULL) {
-            if (device->handle != NULL) {
-                snd_pcm_close(device->handle);
+            if (device != NULL)
+            {
+                if (device->handle != NULL)
+                {
+                    snd_pcm_close(device->handle);
+                }
+                free(device);
             }
-            free(device);
-        }
         }
 
     cleanup_card:
+        if (card_name != NULL)
+        {
+            free(card_name);
+        }
+        if (card_human_name != NULL)
+        {
+            free(card_human_name);
+        }
+        if (mixer != NULL)
+        {
+            snd_mixer_close(mixer);
+        }
         if (ctl != NULL)
         {
             snd_ctl_close(ctl);
@@ -173,9 +238,9 @@ void audio_update()
         struct device_context *device = devices[i];
 
         uint32_t frames_to_write = get_sample_count() - device->position;
-        if (frames_to_write > 4096)
+        if (frames_to_write > 44100)
         {
-            frames_to_write = 4096;
+            frames_to_write = 44100;
         }
 
         int frames_written = snd_pcm_writei(device->handle, get_sample_ptr(device->position), frames_to_write);

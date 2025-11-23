@@ -23,6 +23,8 @@ fi
 
 # Build uki efi file
 echo "[UKI]" > ./obj/ukify.conf
+echo "Cmdline=splash quite" >> ./obj/ukify.conf
+echo "splash=./resources/splash.bmp" >> ./obj/ukify.conf
 echo "Linux=$(realpath ./obj/vmlinuz)" >> ./obj/ukify.conf
 if [[ "$compress" == "true" ]]; then
     echo "Initrd=$(realpath ./obj/mystery.img.gz)" >> ./obj/ukify.conf

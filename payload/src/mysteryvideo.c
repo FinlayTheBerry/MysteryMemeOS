@@ -14,24 +14,11 @@
 #include <stdio.h>
 
 // Structs
-struct binding
-{
-    uint32_t connector_id;
-    uint32_t crct_id;
-};
 struct card
 {
     char *path;
     int fd;
     drmModeRes *resources;
-    int crtc_count;
-    drmModeCrtc **crtcs;
-    int encoder_count;
-    drmModeEncoder **encoders;
-    int connector_count;
-    drmModeConnector **connectors;
-    int binding_count;
-    struct binding *bindings;
 };
 struct renderer
 {
@@ -123,52 +110,11 @@ static void init_cards()
             goto cleanup;
         }
 
-        card->crtc_count = card->resources->count_crtcs;
-        card->crtcs = (drmModeCrtc **)calloc(card->crtc_count, sizeof(drmModeCrtc *));
-        for (int i = 0; i < card->crtc_count; i++)
+        if (card->resources->count_crtcs < card->resources->count_connectors)
         {
-            card->crtcs[i] = drmModeGetCrtc(card->fd, card->resources->crtcs[i]);
-            if (card->crtcs[i] == NULL)
-            {
-                printf("Video error - drmModeGetConnector failed - %s\n", strerror(errno));
-                fflush(stdout);
-                goto cleanup;
-            }
-        }
-
-        card->encoder_count = card->resources->count_encoders;
-        card->encoders = (drmModeEncoder **)calloc(card->encoder_count, sizeof(drmModeEncoder *));
-        for (int i = 0; i < card->encoder_count; i++)
-        {
-            card->encoders[i] = drmModeGetEncoder(card->fd, card->resources->encoders[i]);
-            if (card->encoders[i] == NULL)
-            {
-                printf("Video error - drmModeGetEncoder failed - %s\n", strerror(errno));
-                fflush(stdout);
-                goto cleanup;
-            }
-        }
-
-        card->connector_count = card->resources->count_connectors;
-        card->connectors = (drmModeConnector **)calloc(card->connector_count, sizeof(drmModeConnector *));
-        for (int i = 0; i < card->connector_count; i++)
-        {
-            card->connectors[i] = drmModeGetConnector(card->fd, card->resources->connectors[i]);
-            if (card->connectors[i] == NULL)
-            {
-                printf("Video error - drmModeGetConnector failed - %s\n", strerror(errno));
-                fflush(stdout);
-                goto cleanup;
-            }
-        }
-
-        // TODO implament a better algorithm
-        card->binding_count = card->connector_count;
-        card->bindings = (struct binding *)calloc(card->connector_count, sizeof(struct binding));
-        for (int i = 0; i < card->connector_count; i++)
-        {
-            card->bindings[i].connector_id = card->connectors[i]->connector_id;
-            card->bindings[i].crct_id = card->crtcs[i]->crtc_id;
+            printf("Video error - Card has %d connectors but only %d crtcs\n", card->resources->count_connectors, card->resources->count_crtcs);
+            fflush(stdout);
+            goto cleanup;
         }
 
         printf("Video info - Bound to card %s\n", card->path);
@@ -181,34 +127,6 @@ static void init_cards()
     cleanup:
         if (card != NULL)
         {
-            if (card->bindings != NULL)
-            {
-                free(card->bindings);
-            }
-            if (card->connectors != NULL)
-            {
-                for (int j = 0; j < card->connector_count; j++)
-                {
-                    drmModeFreeConnector(card->connectors[j]);
-                }
-                free(card->connectors);
-            }
-            if (card->encoders != NULL)
-            {
-                for (int j = 0; j < card->encoder_count; j++)
-                {
-                    drmModeFreeEncoder(card->encoders[j]);
-                }
-                free(card->encoders);
-            }
-            if (card->crtcs != NULL)
-            {
-                for (int j = 0; j < card->crtc_count; j++)
-                {
-                    drmModeFreeCrtc(card->crtcs[j]);
-                }
-                free(card->crtcs);
-            }
             if (card->resources != NULL)
             {
                 drmModeFreeResources(card->resources);
@@ -276,14 +194,14 @@ static void update_renderers()
 {
     for (int i = 0; i < card_count; i++)
     {
-        for (int j = 0; j < cards[i]->binding_count; j++)
+        for (int j = 0; j < cards[i]->resources->count_connectors; j++)
         {
             struct renderer *renderer = NULL;
             drmModeConnector *connector = NULL;
 
             for (int k = 0; k < renderer_count; k++)
             {
-                if (strcmp(renderers[k]->card->path, cards[i]->path) == 0 && renderers[k]->connector_id == cards[i]->bindings[j].connector_id)
+                if (strcmp(renderers[k]->card->path, cards[i]->path) == 0 && renderers[k]->connector_id == cards[i]->resources->connectors[j])
                 {
                     goto cleanup;
                 }
@@ -291,8 +209,8 @@ static void update_renderers()
 
             renderer = (struct renderer *)calloc(1, sizeof(struct renderer));
             renderer->card = cards[i];
-            renderer->connector_id = cards[i]->bindings[j].connector_id;
-            renderer->crtc_id = cards[i]->bindings[j].crct_id;
+            renderer->connector_id = cards[i]->resources->connectors[j];
+            renderer->crtc_id = cards[i]->resources->crtcs[j];
 
             connector = drmModeGetConnector(renderer->card->fd, renderer->connector_id);
             if (connector == NULL)
@@ -305,6 +223,22 @@ static void update_renderers()
             {
                 goto cleanup;
             }
+
+            /*
+            uint32_t bound_crtc = 0;
+            if (connector->encoder_id != 0)
+            {
+                drmModeEncoder *encoder = drmModeGetEncoder(renderer->card->fd, connector->encoder_id);
+                if (encoder == NULL)
+                {
+                    printf("Video error - drmModeGetConnector failed - %s\n", strerror(errno));
+                    fflush(stdout);
+                    goto cleanup;
+                }
+                bound_crtc = encoder->crtc_id;
+                drmModeFreeEncoder(encoder);
+            }
+            */
 
             if (connector->count_modes <= 0)
             {

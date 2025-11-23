@@ -8,7 +8,7 @@ rm -rf ./libalsa
 git clone https://github.com/alsa-project/alsa-lib.git ./libalsa
 cd ./libalsa
 autoreconf -i
-CC="$(realpath "../musl/bin/gcc")" ./configure --prefix="" --disable-shared --enable-static --disable-python --disable-hwdep --disable-topology --disable-aload --disable-mixer --disable-seq --disable-rawmidi --disable-ucm --disable-old-symbols --without-versioned
+CC="$(realpath "../musl/bin/gcc")" ./configure --host=x86_64-linux-musl --prefix='' --disable-shared --enable-static --disable-python --disable-hwdep --disable-topology --disable-aload --disable-seq --disable-rawmidi --disable-ucm --disable-old-symbols --without-versioned
 make -j$(nproc)
 make DESTDIR="$(realpath "./build")" install
 rm -rf ./build/bin

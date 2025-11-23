@@ -30,3 +30,4 @@ compile ./assets_c/mysterysong_raw.c
 compile ../src/mystery.c
 compile ../src/mysteryvideo.c
 compile ../src/mysteryaudio.c
+compile ../src/udev.c
