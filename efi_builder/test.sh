@@ -4,9 +4,10 @@ cd "$(dirname "$(realpath "$0")")"
 
 cp /usr/share/edk2-ovmf/x64/OVMF_VARS.4m.fd ./obj/OVMF_VARS.4m.fd
 qemu-system-x86_64 \
-  -cpu qemu64 \
-  -smp cores=1 \
-  -m 4G \
+  -enable-kvm \
+  -cpu host \
+  -smp cores=4 \
+  -m 8G \
   -drive if=pflash,format=raw,readonly=on,file=/usr/share/edk2-ovmf/x64/OVMF_CODE.4m.fd \
   -drive if=pflash,format=raw,file=./obj/OVMF_VARS.4m.fd \
   -kernel ./obj/mystery.efi \

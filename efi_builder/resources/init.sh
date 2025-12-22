@@ -38,5 +38,5 @@ echo "0" >/proc/sys/kernel/ctrl-alt-del
 echo "0" >/proc/sys/kernel/sysrq
 /usr/bin/depmod --all
 devmod
-mystery --novideo
+mystery
 reboot_sysrq
