@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "mystery.h"
 #include "mysteryvideo.h"
 #include "mysteryaudio.h"
@@ -6,7 +7,9 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <string.h>
-
+#include <stdio.h>
+#include <time.h>
+#include <unistd.h>
 
 static void ignore_sig(int sig)
 {
@@ -62,6 +65,8 @@ int main(int argc, char **argv)
         video_init();
     }
 
+    unsigned long long time_last_frame = 0;
+
     while (!exit_requested)
     {
         if (!no_audio)
@@ -72,6 +77,15 @@ int main(int argc, char **argv)
         {
             video_update();
         }
+
+        struct timespec timespec_now;
+        clock_gettime(CLOCK_MONOTONIC_RAW, &timespec_now);
+        unsigned long long time_now = ((unsigned long long)timespec_now.tv_sec * 1000000000ULL) + (unsigned long long)timespec_now.tv_nsec;
+        unsigned long long delta_time = time_now - time_last_frame;
+        double fps = 1000000000.0 / (double)delta_time;
+        printf("FPS: %lf TPF: %llu\n", fps, delta_time);
+        fflush(stdout);
+        time_last_frame = time_now;
     }
 
     printf("Mystery info - Quitting gracefully\n");

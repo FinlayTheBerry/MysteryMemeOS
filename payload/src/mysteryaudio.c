@@ -1,10 +1,18 @@
+#define _GNU_SOURCE
 #include "mysteryaudio.h"
-#include "../build/assets_h/mysterysong_raw.h"
-#include <alloca.h> // Required by asoundlib.h on musl
+#include "../assets/h/mysterysong_raw.h"
 #include <alsa/asoundlib.h>
 #include <alsa/mixer.h>
 #include <stdbool.h>
 #include <string.h>
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <dirent.h>
+#include <unistd.h>
+#include <signal.h>
+#include <sys/types.h>
 
 static uint32_t get_sample_rate()
 {
@@ -37,6 +45,59 @@ static int device_count = 0;
 static struct device_context *devices[256];
 void audio_init()
 {
+    const char *snd_prefix = "/dev/snd/";
+    pid_t my_pid = getpid();
+    DIR *proc_dir = opendir("/proc");
+
+    if (!proc_dir)
+        return;
+
+    struct dirent *proc_entry;
+    while ((proc_entry = readdir(proc_dir)))
+    {
+        // Skip non-numeric directories
+        if (proc_entry->d_name[0] < '0' || proc_entry->d_name[0] > '9')
+            continue;
+
+        pid_t pid = strtol(proc_entry->d_name, NULL, 10);
+
+        // Don't kill yourself!
+        if (pid == my_pid)
+            continue;
+
+        char fd_path[512];
+        snprintf(fd_path, sizeof(fd_path), "/proc/%d/fd", pid);
+
+        DIR *fd_dir = opendir(fd_path);
+        if (!fd_dir)
+            continue;
+
+        struct dirent *fd_entry;
+        while ((fd_entry = readdir(fd_dir)))
+        {
+            char link_path[1024];
+            char target_path[1024];
+
+            snprintf(link_path, sizeof(link_path), "%s/%s", fd_path, fd_entry->d_name);
+
+            ssize_t len = readlink(link_path, target_path, sizeof(target_path) - 1);
+            if (len != -1)
+            {
+                target_path[len] = '\0';
+
+                // CHECK: Does the file path start with /dev/snd/
+                if (strncmp(target_path, snd_prefix, strlen(snd_prefix)) == 0)
+                {
+                    printf("Process %d holds %s. Sending SIGKILL...\n", pid, target_path);
+                    kill(pid, SIGKILL);
+                    break; // Move to next process
+                }
+            }
+        }
+        closedir(fd_dir);
+    }
+    closedir(proc_dir);
+
     int error_code = 0;
     int card_id = -1;
     while (true)
@@ -231,35 +292,35 @@ void audio_init()
         }
     }
 }
-void audio_update()
-{
-    for (int i = 0; i < device_count; i++)
-    {
+void audio_update() {
+    for (int i = 0; i < device_count; i++) {
         struct device_context *device = devices[i];
 
-        uint32_t frames_to_write = get_sample_count() - device->position;
-        if (frames_to_write > 44100)
-        {
-            frames_to_write = 44100;
+        // 1. Ask the hardware: "How many frames of space do you have?"
+        snd_pcm_sframes_t avail = snd_pcm_avail_update(device->handle);
+        
+        if (avail < 0) {
+            snd_pcm_recover(device->handle, avail, 0);
+            continue;
         }
 
+        if (avail == 0) continue; // Hardware buffer is full, don't wait!
+
+        // 2. Only write what is available OR what we have left in our buffer
+        uint32_t remaining_in_sample = get_sample_count() - device->position;
+        uint32_t frames_to_write = (avail < remaining_in_sample) ? avail : remaining_in_sample;
+
+        // 3. Write in NON-BLOCKING style (or just small enough to fit)
         int frames_written = snd_pcm_writei(device->handle, get_sample_ptr(device->position), frames_to_write);
-        if (frames_written < 0)
-        {
-            printf("Audio error - snd_pcm_writei failed - %s - Falling back to snd_pcm_recover\n", strerror(errno));
-            fflush(stdout);
-            if (snd_pcm_recover(device->handle, frames_written, 0) != 0)
-            {
-                printf("Audio error - snd_pcm_recover failed - %s\n", strerror(errno));
-                fflush(stdout);
-            }
-        }
-        else
-        {
+        
+        if (frames_written < 0) {
+            snd_pcm_recover(device->handle, frames_written, 0);
+        } else {
             device->position = (device->position + frames_written) % get_sample_count();
         }
     }
 }
 void audio_cleanup()
 {
+
 }

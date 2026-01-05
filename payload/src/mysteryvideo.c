@@ -1,5 +1,5 @@
 #include "mysteryvideo.h"
-#include "../build/assets_h/mysteryimage_raw.h"
+#include "../assets/h/mysteryimage_raw.h"
 #include "mystery.h"
 #include <fcntl.h>
 #include <stdlib.h>
@@ -384,6 +384,8 @@ static uint32_t get_pixel(uint32_t x, uint32_t y)
     return *(uint32_t *)(mysteryimage_raw_buffer + (y * stride) + (x * 4) + 8);
 }
 
+static bool flag = true;
+
 // Renderring and presenting
 static void render(struct renderer *renderer)
 {
@@ -400,6 +402,7 @@ static void render(struct renderer *renderer)
         framebuffer_id = renderer->framebuffer_b_id;
     }
 
+    if (flag) {
     for (uint32_t x = 0; x < renderer->width; x++)
     {
         for (uint32_t y = 0; y < renderer->height; y++)
@@ -410,9 +413,11 @@ static void render(struct renderer *renderer)
             framebuffer[(y * renderer->width) + x] = mysteryPixel;
         }
     }
+    }
 
-    if (drmModePageFlip(renderer->card->fd, renderer->crtc_id, framebuffer_id, 0, NULL) != 0)
+    if (drmModePageFlip(renderer->card->fd, renderer->crtc_id, framebuffer_id, 0, NULL) == 0)
     {
+        /*
         printf("Video error - drmModePageFlip failed - %s - falling back to drmModeSetCrtc \n", strerror(errno));
         fflush(stdout);
         if (drmModeSetCrtc(renderer->card->fd, renderer->crtc_id, framebuffer_id, 0, 0, &renderer->connector_id, 1, &renderer->mode) != 0)
@@ -420,23 +425,25 @@ static void render(struct renderer *renderer)
             printf("Video error - drmModeSetCrtc failed - %s\n", strerror(errno));
             fflush(stdout);
         }
+        */
+        renderer->showing_b = !renderer->showing_b;
     }
 
-    renderer->showing_b = !renderer->showing_b;
 }
 
 // Basic control flow
 void video_init()
 {
     init_cards();
+    update_renderers();
 }
 void video_update()
 {
-    update_renderers();
     for (int i = 0; i < renderer_count; i++)
     {
         render(renderers[i]);
     }
+    //flag = false;
 }
 void video_cleanup()
 {

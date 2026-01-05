@@ -1,54 +1,68 @@
-.PHONY: all clean clean_all
+CC := ./musl/bin/gcc
+DEBUG_CFLAGS := -Wall -Wextra -Werror -static -g -O0
+RELEASE_CFLAGS := -Wall -Wextra -Werror -static -s -O3
+SRCS := $(wildcard ./src/*.c)
+DEBUG_OBJS := $(SRCS:./src/%.c=./obj/debug/%.o)
+RELEASE_OBJS := $(SRCS:./src/%.c=./obj/release/%.o)
+INCLUDES := -I"./lib/libdrm/include" -I"./lib/libdrm/include/libdrm" -I"./lib/libalsa/include"
+LIBS := ./lib/libalsa/lib/libasound.a ./lib/libdrm/lib/libdrm.a ./assets/o/mysteryimage_raw.o ./assets/o/mysterysong_raw.o
 
-CC = ./musl/bin/gcc
-CXX = ./musl/bin/g++
-CFLAGS = -static -Wall -Wextra -Werror -Wpedantic
+./bin/mystery: $(RELEASE_OBJS) | ./musl ./lib/libalsa ./lib/libdrm
+	@mkdir -p ./bin
+	$(CC) $(RELEASE_CFLAGS) -o $@ $^ $(LIBS)
 
-DEBUG ?= no
-if ${DEBUG}=Y || ${DEBUG}=y || ${DEBUG}=yes
-    CFLAGS += -g -O0
-endif
+debug: ./bin/mystery_debug
+./bin/mystery_debug: $(DEBUG_OBJS) | ./musl ./lib/libalsa ./lib/libdrm
+	@mkdir -p ./bin
+	$(CC) $(DEBUG_CFLAGS) -o $@ $^ $(LIBS)
 
-SRCDIR = ./src
-BINDIR = ./bin
-OBJDIR = ./obj
-MUSLDIR = ./musl
-LIBUSBDIR = ./libusb
+./obj/release/%.o: ./src/%.c | ./musl ./lib/libalsa ./lib/libdrm
+	@mkdir -p ./obj/release
+	$(CC) $(RELEASE_CFLAGS) $(INCLUDES) -c $< -o $@
 
-all: $(BINDIR)/powerdmx
+./obj/debug/%.o: ./src/%.c | ./musl ./lib/libalsa ./lib/libdrm
+	@mkdir -p ./obj/debug
+	$(CC) $(DEBUG_CFLAGS) $(INCLUDES) -c $< -o $@
 
-$(BINDIR)/powerdmx: $(OBJDIR)/program.o $(OBJDIR)/cliengine.o $(OBJDIR)/powerdmx.o | $(BINDIR) $(MUSLDIR) $(LIBUSBDIR)
-	$(CXX) $(CFLAGS) -o $@ $^ "$(LIBUSBDIR)/lib/libusb-1.0.a"
+./lib/libalsa: ./musl
+	@mkdir -p ./lib
+	@echo 'Cloning LibAlsa...'
+	@git clone https://github.com/alsa-project/alsa-lib.git ./lib/libalsa_git/ 1>/dev/null 2>&1
+	@echo 'Building LibAlsa...'
+	@cd ./lib/libalsa_git/ && autoreconf -i 1>/dev/null 2>&1
+	@cd ./lib/libalsa_git/ && CC='$(abspath $(CC))' ./configure --host=x86_64-linux-musl --prefix='' --disable-shared --enable-static --disable-python --disable-hwdep --disable-topology --disable-aload --disable-seq --disable-rawmidi --disable-ucm --disable-old-symbols --without-versioned --disable-dlset --with-pthread=yes 1>/dev/null 2>&1
+	@cd ./lib/libalsa_git/ && make -j$(shell nproc) 1>/dev/null 2>&1
+	@cd ./lib/libalsa_git/ && make DESTDIR='$(abspath ./lib/libalsa)' install 1>/dev/null 2>&1
+	@rm -rf ./lib/libalsa_git/ 1>/dev/null 2>&1
+	@rm -rf ./lib/libalsa/bin/ 1>/dev/null 2>&1
+	@rm -rf ./lib/libalsa/lib/pkgconfig/ 1>/dev/null 2>&1
+	@rm -f ./lib/libalsa/lib/libasound.la 1>/dev/null 2>&1
+	@rm -rf ./lib/libalsa/share/aclocal/ 1>/dev/null 2>&1
 
-$(OBJDIR)/%.o: $(SRCDIR)/%.cpp | $(OBJDIR) $(MUSLDIR) $(LIBUSBDIR)
-	$(CXX) $(CFLAGS) -I"$(LIBUSBDIR)/include" -c $< -o $@
+./lib/libdrm: ./musl
+	@echo $(abspath $(CC))
+	@mkdir -p ./lib
+	@echo 'Cloning LibDrm...'
+	@git clone https://gitlab.freedesktop.org/mesa/libdrm.git ./lib/libdrm_git
+	@echo 'Building LibDrm...'
+	@cd ./lib/libdrm_git && CC='$(abspath $(CC))' CFLAGS='-static' meson setup ./ninja --reconfigure --prefix='/' --default-library=static -Dintel=disabled -Dradeon=disabled -Damdgpu=disabled -Dnouveau=disabled -Dvmwgfx=disabled -Detnaviv=disabled -Dfreedreno=disabled -Dexynos=disabled -Domap=disabled -Dtegra=disabled -Dcairo-tests=disabled -Dvalgrind=disabled -Dman-pages=disabled
+	@cd ./lib/libdrm_git && ninja -j$(shell nproc) -C ./ninja
+	@cd ./lib/libdrm_git && DESTDIR='$(abspath ./lib/libdrm)' ninja -C ./ninja install
+	@rm -rf ./lib/libdrm_git/
+	@rm -rf ./lib/libdrm/lib/pkgconfig
 
-$(BINDIR) $(OBJDIR):
-	mkdir -p $@
-
-$(MUSLDIR):
-	@echo Downloading Musl...
+./musl:
+	@echo 'Downloading Musl...'
 	@curl https://musl.cc/x86_64-linux-musl-native.tgz -o ./musl.tgz --progress-bar
-	@echo Extracting Musl...
+	@echo 'Extracting Musl...'
 	@tar -xvf ./musl.tgz 1>/dev/null 2>&1
-	@rm ./musl.tgz
-	@mv ./x86_64-linux-musl-native ./musl
-
-test:
-	@rm -rf ./libusb_git
-	@echo Cloning LibUsb...
-	@git clone https://github.com/libusb/libusb.git ./libusb_git
-	@echo Building LibUsb...
-	@cd libusb_git && ./bootstrap.sh
-	@cd libusb_git && ./configure --host=x86_64-linux-musl --enable-static --disable-shared --disable-udev --prefix="$(realpath ../libusb)"
-	@$(MAKE) -C ./libusb_git -j$(nproc)
-	@$(MAKE) -C ./libusb_git install
+	@rm ./musl.tgz 1>/dev/null 2>&1
+	@mv ./x86_64-linux-musl-native ./musl 1>/dev/null 2>&1
 
 clean:
-	rm -rf $(OBJDIR)
-	rm -rf $(BINDIR)
+	rm -rf ./bin ./obj
 
-clean_all:
-	rm -rf $(MUSLDIR)
-	rm -rf $(LIBUSBDIR)
-	@$(MAKE) clean --no-print-directory
+cleanall:
+	rm -rf ./bin ./obj ./lib ./musl
+
+.PHONY: debug clean cleanall
