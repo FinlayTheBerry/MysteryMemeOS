@@ -5,24 +5,30 @@ SRCS := $(wildcard ./src/*.c)
 DEBUG_OBJS := $(SRCS:./src/%.c=./obj/debug/%.o)
 RELEASE_OBJS := $(SRCS:./src/%.c=./obj/release/%.o)
 INCLUDES := -I"./lib/libdrm/include" -I"./lib/libdrm/include/libdrm" -I"./lib/libalsa/include"
-LIBS := ./lib/libalsa/lib/libasound.a ./lib/libdrm/lib/libdrm.a ./assets/o/mysteryimage_raw.o ./assets/o/mysterysong_raw.o
+LIBS := ./lib/libalsa/lib/libasound.a ./lib/libdrm/lib/libdrm.a
 
-./bin/mystery: $(RELEASE_OBJS) | ./musl ./lib/libalsa ./lib/libdrm
+./bin/mystery: $(RELEASE_OBJS) ./assets/assets.o | ./musl ./lib/libalsa ./lib/libdrm
 	@mkdir -p ./bin
 	$(CC) $(RELEASE_CFLAGS) -o $@ $^ $(LIBS)
 
 debug: ./bin/mystery_debug
-./bin/mystery_debug: $(DEBUG_OBJS) | ./musl ./lib/libalsa ./lib/libdrm
+./bin/mystery_debug: $(DEBUG_OBJS) ./assets/assets.o | ./musl ./lib/libalsa ./lib/libdrm
 	@mkdir -p ./bin
 	$(CC) $(DEBUG_CFLAGS) -o $@ $^ $(LIBS)
 
-./obj/release/%.o: ./src/%.c | ./musl ./lib/libalsa ./lib/libdrm
+./obj/release/%.o: ./src/%.c ./assets/assets.o | ./musl ./lib/libalsa ./lib/libdrm
 	@mkdir -p ./obj/release
 	$(CC) $(RELEASE_CFLAGS) $(INCLUDES) -c $< -o $@
 
-./obj/debug/%.o: ./src/%.c | ./musl ./lib/libalsa ./lib/libdrm
+./obj/debug/%.o: ./src/%.c ./assets/assets.o | ./musl ./lib/libalsa ./lib/libdrm
 	@mkdir -p ./obj/debug
 	$(CC) $(DEBUG_CFLAGS) $(INCLUDES) -c $< -o $@
+
+assets:
+./assets/assets.o: ./assets/mysteryimage.png ./assets/mysterysong.xm | ./musl
+	./assets/precompile_assets.py
+	$(CC) $(DEBUG_CFLAGS) -c ./assets/assets.c -o ./assets/assets.o
+	@rm ./assets/assets.c
 
 ./lib/libalsa: ./musl
 	@mkdir -p ./lib
@@ -60,9 +66,9 @@ debug: ./bin/mystery_debug
 	@mv ./x86_64-linux-musl-native ./musl 1>/dev/null 2>&1
 
 clean:
-	rm -rf ./bin ./obj
+	rm -rf ./bin ./obj ./assets/assets.h ./assets/assets.o
 
 cleanall:
-	rm -rf ./bin ./obj ./lib ./musl
+	rm -rf ./bin ./obj ./assets/assets.h ./assets/assets.o ./lib ./musl
 
-.PHONY: debug clean cleanall
+.PHONY: debug assets clean cleanall

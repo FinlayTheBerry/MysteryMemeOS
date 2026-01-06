@@ -1,5 +1,5 @@
 #include "mysteryvideo.h"
-#include "../assets/h/mysteryimage_raw.h"
+#include "../assets/assets.h"
 #include "mystery.h"
 #include <fcntl.h>
 #include <stdlib.h>
@@ -54,8 +54,6 @@ static void init_cards();
 static void cleanup_renderer(struct renderer *renderer);
 static void remove_renderer(int index);
 static void update_renderers();
-static uint32_t get_width();
-static uint32_t get_height();
 static uint32_t get_pixel(uint32_t x, uint32_t y);
 static void render(struct renderer *renderer);
 
@@ -370,18 +368,9 @@ static void update_renderers()
 }
 
 // Loading image data
-static uint32_t get_width()
-{
-    return *(uint32_t *)mysteryimage_raw_buffer;
-}
-static uint32_t get_height()
-{
-    return *(uint32_t *)(mysteryimage_raw_buffer + 4);
-}
 static uint32_t get_pixel(uint32_t x, uint32_t y)
 {
-    uint32_t stride = (*(uint32_t *)mysteryimage_raw_buffer) * 4;
-    return *(uint32_t *)(mysteryimage_raw_buffer + (y * stride) + (x * 4) + 8);
+    return *(uint32_t *)(mysteryimage_buffer + (y * mysteryimage_stride) + (x * 4));
 }
 
 static bool flag = true;
@@ -407,8 +396,8 @@ static void render(struct renderer *renderer)
     {
         for (uint32_t y = 0; y < renderer->height; y++)
         {
-            uint32_t scaledX = (x * get_width()) / renderer->width;
-            uint32_t scaledY = (y * get_height()) / renderer->height;
+            uint32_t scaledX = (x * mysteryimage_width) / renderer->width;
+            uint32_t scaledY = (y * mysteryimage_height) / renderer->height;
             uint32_t mysteryPixel = get_pixel(scaledX, scaledY);
             framebuffer[(y * renderer->width) + x] = mysteryPixel;
         }

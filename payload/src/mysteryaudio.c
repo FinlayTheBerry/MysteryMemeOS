@@ -1,6 +1,6 @@
 #define _GNU_SOURCE
 #include "mysteryaudio.h"
-#include "../assets/h/mysterysong_raw.h"
+#include "../assets/assets.h"
 #include <alsa/asoundlib.h>
 #include <alsa/mixer.h>
 #include <stdbool.h>
@@ -14,21 +14,9 @@
 #include <signal.h>
 #include <sys/types.h>
 
-static uint32_t get_sample_rate()
-{
-    return *(uint32_t *)(mysterysong_raw_buffer + 0);
-}
-static uint32_t get_channel_count()
-{
-    return *(uint32_t *)(mysterysong_raw_buffer + 4);
-}
-static uint32_t get_sample_count()
-{
-    return *(uint32_t *)(mysterysong_raw_buffer + 12);
-}
 static uint32_t *get_sample_ptr(uint32_t index)
 {
-    return (uint32_t *)(mysterysong_raw_buffer + 12 + (index * 4));
+    return (uint32_t *)(mysterysong_buffer + (index * mysterysong_bytes_per_sample));
 }
 
 // Structs
@@ -232,15 +220,15 @@ void audio_init()
                 fflush(stdout);
                 goto cleanup_device;
             }
-            if ((error_code = snd_pcm_hw_params_set_channels(device->handle, params, get_channel_count())) != 0)
+            if ((error_code = snd_pcm_hw_params_set_channels(device->handle, params, mysterysong_channel_count)) != 0)
             {
                 printf("Audio error - snd_pcm_hw_params_set_channels failed - %s\n", snd_strerror(error_code));
                 fflush(stdout);
                 goto cleanup_device;
             }
             int dir = 0;
-            unsigned int samplerate = get_sample_rate();
-            if ((error_code = snd_pcm_hw_params_set_rate_near(device->handle, params, &samplerate, &dir)) != 0 || samplerate != get_sample_rate())
+            unsigned int samplerate = mysterysong_sample_rate;
+            if ((error_code = snd_pcm_hw_params_set_rate_near(device->handle, params, &samplerate, &dir)) != 0 || samplerate != mysterysong_sample_rate)
             {
                 printf("Audio error - snd_pcm_hw_params_set_rate_near failed - %s\n", snd_strerror(error_code));
                 fflush(stdout);
@@ -307,7 +295,7 @@ void audio_update() {
         if (avail == 0) continue; // Hardware buffer is full, don't wait!
 
         // 2. Only write what is available OR what we have left in our buffer
-        uint32_t remaining_in_sample = get_sample_count() - device->position;
+        uint32_t remaining_in_sample = mysterysong_sample_count - device->position;
         uint32_t frames_to_write = (avail < remaining_in_sample) ? avail : remaining_in_sample;
 
         // 3. Write in NON-BLOCKING style (or just small enough to fit)
@@ -316,7 +304,7 @@ void audio_update() {
         if (frames_written < 0) {
             snd_pcm_recover(device->handle, frames_written, 0);
         } else {
-            device->position = (device->position + frames_written) % get_sample_count();
+            device->position = (device->position + frames_written) % mysterysong_sample_count;
         }
     }
 }
