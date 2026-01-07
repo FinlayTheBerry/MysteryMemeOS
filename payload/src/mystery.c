@@ -2,59 +2,47 @@
 #include "mystery.h"
 #include "mysteryvideo.h"
 #include "mysteryaudio.h"
+#include <stdbool.h>
+#include <stdint.h>
 #include <signal.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <stdio.h>
 #include <string.h>
 #include <stdio.h>
 #include <time.h>
 #include <unistd.h>
+#include <errno.h>
+#include <inttypes.h>
 
-static void ignore_sig(int sig)
-{
-    (void)sig;
-    return;
-}
+#define check(condition, function, error) do { if (!(condition)) { fprintf(stderr, "error - %s:%d - %s - %s\n", __FILE__, __LINE__, function, error); fflush(stderr); _exit(1); } } while (0);
+
 static void exit_sig(int sig)
 {
     (void)sig;
-    exit_requested = true;
+    _exit(0);
 }
 
-volatile bool exit_requested = false;
 int main(int argc, char **argv)
 {
+    int status = 0;
     bool no_audio = false;
     bool no_video = false;
 
-    for (int i = 0; i < argc; i++)
+    for (int i = 1; i < argc; i++)
     {
         if (strcmp(argv[i], "--noaudio") == 0)
         {
             no_audio = true;
-            printf("Mystery info - No audio\n");
+            fprintf(stdout, "Mystery info - No audio\n");
             fflush(stdout);
         }
         if (strcmp(argv[i], "--novideo") == 0)
         {
             no_video = true;
-            printf("Mystery info - No video\n");
+            fprintf(stdout, "Mystery info - No video\n");
             fflush(stdout);
         }
     }
 
-    for (int i = 0; i < _NSIG; i++)
-    {
-        if (i == SIGINT)
-        {
-            signal(i, exit_sig);
-        }
-        else
-        {
-            signal(i, ignore_sig);
-        }
-    }
+    signal(SIGINT, exit_sig);
 
     if (!no_audio)
     {
@@ -65,9 +53,11 @@ int main(int argc, char **argv)
         video_init();
     }
 
-    unsigned long long time_last_frame = 0;
-
-    while (!exit_requested)
+    struct timespec timespec_now;
+    status = clock_gettime(CLOCK_MONOTONIC_RAW, &timespec_now);
+    check(status == 0, "clock_gettime", strerror(errno));
+    uint64_t time_last_frame = ((uint64_t)timespec_now.tv_sec * (uint64_t)1000000000) + (uint64_t)timespec_now.tv_nsec;
+    while (true)
     {
         if (!no_audio)
         {
@@ -78,27 +68,14 @@ int main(int argc, char **argv)
             video_update();
         }
 
-        struct timespec timespec_now;
-        clock_gettime(CLOCK_MONOTONIC_RAW, &timespec_now);
-        unsigned long long time_now = ((unsigned long long)timespec_now.tv_sec * 1000000000ULL) + (unsigned long long)timespec_now.tv_nsec;
-        unsigned long long delta_time = time_now - time_last_frame;
-        double fps = 1000000000.0 / (double)delta_time;
-        printf("FPS: %lf TPF: %llu\n", fps, delta_time);
+        status = clock_gettime(CLOCK_MONOTONIC_RAW, &timespec_now);
+        check(status == 0, "clock_gettime", strerror(errno));
+        uint64_t time_now = ((uint64_t)timespec_now.tv_sec * (uint64_t)1000000000) + (uint64_t)timespec_now.tv_nsec;
+
+        uint64_t delta_time = time_now - time_last_frame;
+        double fps = (double)1000000000.0 / (double)delta_time;
+        printf("FPS: %lf TPF: %" PRIu64 "\r", fps, delta_time);
         fflush(stdout);
         time_last_frame = time_now;
     }
-
-    printf("Mystery info - Quitting gracefully\n");
-    fflush(stdout);
-
-    if (!no_audio)
-    {
-        audio_cleanup();
-    }
-    if (!no_video)
-    {
-        video_cleanup();
-    }
-
-    return 0;
 }

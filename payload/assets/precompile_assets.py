@@ -2,7 +2,6 @@
 import os
 import subprocess
 import sys
-import struct
 from PIL import Image
 import wave
 
@@ -66,20 +65,20 @@ def Main():
 
     RunCommand("ffmpeg -i mysterysong.xm -ar 44100 -ac 2 -c:a pcm_s16le -map_metadata -1 -y mysterysong.wav")
     with wave.open("mysterysong.wav", "r") as mysterysong:
-        mysterysong_sample_count = mysterysong.getnframes()
-        mysterysong_sample_rate = mysterysong.getframerate()
+        mysterysong_frame_count = mysterysong.getnframes()
+        mysterysong_frame_rate = mysterysong.getframerate()
         mysterysong_channel_count = mysterysong.getnchannels()
         mysterysong_bytes_per_sample = mysterysong.getsampwidth()
-        mysterysong_payload = mysterysong.readframes(mysterysong_sample_count)
-        assets_h += "extern const uint32_t mysterysong_sample_count;\n"
-        assets_h += "extern const uint32_t mysterysong_sample_rate;\n"
+        mysterysong_payload = mysterysong.readframes(mysterysong_frame_count)
+        assets_h += "extern const uint32_t mysterysong_frame_count;\n"
+        assets_h += "extern const uint32_t mysterysong_frame_rate;\n"
         assets_h += "extern const uint32_t mysterysong_channel_count;\n"
         assets_h += "extern const uint32_t mysterysong_bytes_per_sample;\n"
         assets_h += "extern const size_t mysterysong_length;\n"
         assets_h += "extern const uint8_t mysterysong_buffer[];\n"
         assets_h += "\n"
-        assets_c += f"const uint32_t mysterysong_sample_count = {mysterysong_sample_count};\n"
-        assets_c += f"const uint32_t mysterysong_sample_rate = {mysterysong_sample_rate};\n"
+        assets_c += f"const uint32_t mysterysong_frame_count = {mysterysong_frame_count};\n"
+        assets_c += f"const uint32_t mysterysong_frame_rate = {mysterysong_frame_rate};\n"
         assets_c += f"const uint32_t mysterysong_channel_count = {mysterysong_channel_count};\n"
         assets_c += f"const uint32_t mysterysong_bytes_per_sample = {mysterysong_bytes_per_sample};\n"
         assets_c += f"const size_t mysterysong_length = {len(mysterysong_payload)};\n"

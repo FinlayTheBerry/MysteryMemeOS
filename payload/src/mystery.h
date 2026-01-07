@@ -1,9 +1,6 @@
-#ifndef Mystery_H
-#define Mystery_H
+#ifndef mystery_h
+#define mystery_h
 
-#include <stdbool.h>
-
-extern volatile bool exit_requested;
 int main(int argc, char **argv);
 
 #endif

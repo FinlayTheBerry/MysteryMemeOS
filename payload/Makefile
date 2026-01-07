@@ -18,11 +18,11 @@ debug: ./bin/mystery_debug
 
 ./obj/release/%.o: ./src/%.c ./assets/assets.o | ./musl ./lib/libalsa ./lib/libdrm
 	@mkdir -p ./obj/release
-	$(CC) $(RELEASE_CFLAGS) $(INCLUDES) -c $< -o $@
+	$(CC) $(RELEASE_CFLAGS) $(INCLUDES) -ffile-prefix-map=/important_data/Coding/MysteryMemeware/MysteryMemeOS/payload/src=. -c $< -o $@
 
 ./obj/debug/%.o: ./src/%.c ./assets/assets.o | ./musl ./lib/libalsa ./lib/libdrm
 	@mkdir -p ./obj/debug
-	$(CC) $(DEBUG_CFLAGS) $(INCLUDES) -c $< -o $@
+	$(CC) $(DEBUG_CFLAGS) $(INCLUDES) -ffile-prefix-map=/important_data/Coding/MysteryMemeware/MysteryMemeOS/payload/src=. -c $< -o $@
 
 assets:
 ./assets/assets.o: ./assets/mysteryimage.png ./assets/mysterysong.xm | ./musl

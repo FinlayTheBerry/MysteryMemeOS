@@ -2,10 +2,8 @@
 #include "mysteryaudio.h"
 #include "../assets/assets.h"
 #include <alsa/asoundlib.h>
-#include <alsa/mixer.h>
-#include <stdbool.h>
 #include <string.h>
-
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,13 +11,43 @@
 #include <unistd.h>
 #include <signal.h>
 #include <sys/types.h>
+#include <sys/mman.h>
+#include <errno.h>
+
+#define check(condition, function, error)                                                      \
+    do                                                                                         \
+    {                                                                                          \
+        if (!(condition))                                                                      \
+        {                                                                                      \
+            fprintf(stderr, "error - %s:%d - %s - %s\n", __FILE__, __LINE__, function, error); \
+            fflush(stderr);                                                                    \
+            _exit(1);                                                                          \
+        }                                                                                      \
+    } while (0);
+
+static void bootstrap_alsa()
+{
+    const char mini_alsa_conf[] = "ctl.hw { @args [ CARD ] @args.CARD { type integer } type hw card $CARD } pcm.hw { @args [ CARD DEV ] @args.CARD { type integer } @args.DEV { type integer } type hw card $CARD device $DEV }";
+    const size_t mini_alsa_conf_len = sizeof(mini_alsa_conf) - 1;
+
+    int fd = memfd_create("mini_alsa_conf", 0);
+    check(fd >= 0, "memfd_create", strerror(errno));
+
+    ssize_t written = write(fd, mini_alsa_conf, mini_alsa_conf_len);
+    check(written == (ssize_t)mini_alsa_conf_len, "write", strerror(errno));
+
+    char fd_path[25]; // Just long enough for "/proc/self/fd/4294967296\0"
+    snprintf(fd_path, sizeof(fd_path), "/proc/self/fd/%d", fd);
+
+    int status = setenv("ALSA_CONFIG_PATH", fd_path, 1);
+    check(status == 0, "setenv", strerror(errno));
+}
 
 static uint32_t *get_sample_ptr(uint32_t index)
 {
-    return (uint32_t *)(mysterysong_buffer + (index * mysterysong_bytes_per_sample));
+    return (uint32_t *)(mysterysong_buffer + (index * mysterysong_bytes_per_sample * mysterysong_channel_count));
 }
 
-// Structs
 struct device_context
 {
     int card_id;
@@ -28,67 +56,15 @@ struct device_context
     uint32_t position;
 };
 
-// Basic control flow
 static int device_count = 0;
 static struct device_context *devices[256];
 void audio_init()
 {
-    const char *snd_prefix = "/dev/snd/";
-    pid_t my_pid = getpid();
-    DIR *proc_dir = opendir("/proc");
-
-    if (!proc_dir)
-        return;
-
-    struct dirent *proc_entry;
-    while ((proc_entry = readdir(proc_dir)))
-    {
-        // Skip non-numeric directories
-        if (proc_entry->d_name[0] < '0' || proc_entry->d_name[0] > '9')
-            continue;
-
-        pid_t pid = strtol(proc_entry->d_name, NULL, 10);
-
-        // Don't kill yourself!
-        if (pid == my_pid)
-            continue;
-
-        char fd_path[512];
-        snprintf(fd_path, sizeof(fd_path), "/proc/%d/fd", pid);
-
-        DIR *fd_dir = opendir(fd_path);
-        if (!fd_dir)
-            continue;
-
-        struct dirent *fd_entry;
-        while ((fd_entry = readdir(fd_dir)))
-        {
-            char link_path[1024];
-            char target_path[1024];
-
-            snprintf(link_path, sizeof(link_path), "%s/%s", fd_path, fd_entry->d_name);
-
-            ssize_t len = readlink(link_path, target_path, sizeof(target_path) - 1);
-            if (len != -1)
-            {
-                target_path[len] = '\0';
-
-                // CHECK: Does the file path start with /dev/snd/
-                if (strncmp(target_path, snd_prefix, strlen(snd_prefix)) == 0)
-                {
-                    printf("Process %d holds %s. Sending SIGKILL...\n", pid, target_path);
-                    kill(pid, SIGKILL);
-                    break; // Move to next process
-                }
-            }
-        }
-        closedir(fd_dir);
-    }
-    closedir(proc_dir);
+    bootstrap_alsa();
 
     int error_code = 0;
     int card_id = -1;
-    while (true)
+    while (1)
     {
         char *card_name = NULL;
         char *card_human_name = NULL;
@@ -227,8 +203,8 @@ void audio_init()
                 goto cleanup_device;
             }
             int dir = 0;
-            unsigned int samplerate = mysterysong_sample_rate;
-            if ((error_code = snd_pcm_hw_params_set_rate_near(device->handle, params, &samplerate, &dir)) != 0 || samplerate != mysterysong_sample_rate)
+            unsigned int framerate = mysterysong_frame_rate;
+            if ((error_code = snd_pcm_hw_params_set_rate_near(device->handle, params, &framerate, &dir)) != 0 || framerate != mysterysong_frame_rate)
             {
                 printf("Audio error - snd_pcm_hw_params_set_rate_near failed - %s\n", snd_strerror(error_code));
                 fflush(stdout);
@@ -280,35 +256,35 @@ void audio_init()
         }
     }
 }
-void audio_update() {
-    for (int i = 0; i < device_count; i++) {
+void audio_update()
+{
+    int status = 0;
+    for (int i = 0; i < device_count; i++)
+    {
         struct device_context *device = devices[i];
-
-        // 1. Ask the hardware: "How many frames of space do you have?"
-        snd_pcm_sframes_t avail = snd_pcm_avail_update(device->handle);
-        
-        if (avail < 0) {
-            snd_pcm_recover(device->handle, avail, 0);
+        int free_frames = snd_pcm_avail_update(device->handle);
+        if (free_frames < 0)
+        {
+            status = snd_pcm_recover(device->handle, free_frames, 0);
+            check(status == 0, "snd_pcm_recover", snd_strerror(status));
             continue;
         }
-
-        if (avail == 0) continue; // Hardware buffer is full, don't wait!
-
-        // 2. Only write what is available OR what we have left in our buffer
-        uint32_t remaining_in_sample = mysterysong_sample_count - device->position;
-        uint32_t frames_to_write = (avail < remaining_in_sample) ? avail : remaining_in_sample;
-
-        // 3. Write in NON-BLOCKING style (or just small enough to fit)
-        int frames_written = snd_pcm_writei(device->handle, get_sample_ptr(device->position), frames_to_write);
-        
-        if (frames_written < 0) {
-            snd_pcm_recover(device->handle, frames_written, 0);
-        } else {
-            device->position = (device->position + frames_written) % mysterysong_sample_count;
+        if (free_frames == 0)
+        {
+            continue;
         }
+        int frames_to_write = free_frames;
+        if (mysterysong_frame_count - device->position < (uint32_t)frames_to_write)
+        {
+            frames_to_write = mysterysong_frame_count - device->position;
+        }
+        int frames_written = snd_pcm_writei(device->handle, get_sample_ptr(device->position), frames_to_write);
+        if (frames_written < 0)
+        {
+            status = snd_pcm_recover(device->handle, frames_written, 0);
+            check(status == 0, "snd_pcm_recover", snd_strerror(status));
+            continue;
+        }
+        device->position = (device->position + frames_written) % mysterysong_frame_count;
     }
-}
-void audio_cleanup()
-{
-
 }
