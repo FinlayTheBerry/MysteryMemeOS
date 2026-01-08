@@ -169,7 +169,7 @@ void audio_init()
             devices[device_count].handle = handle;
             devices[device_count].position = 0;
             device_count++;
-            check(device_count < sizeof(devices) / sizeof(struct device_context), "device_count++", "Device count exceeds maximum.");
+            check(device_count < (int)sizeof(devices) / (int)sizeof(struct device_context), "device_count++", "Device count exceeds maximum.");
         }
 
         status = snd_ctl_close(ctl);
