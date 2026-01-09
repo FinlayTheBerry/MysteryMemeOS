@@ -1,6 +1,6 @@
 #include "mysteryvideo.h"
 #include "../assets/assets.h"
-#include "mystery.h"
+
 #include <fcntl.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -12,6 +12,22 @@
 #include <xf86drmMode.h>
 #include <errno.h>
 #include <stdio.h>
+
+#define check(condition, function, error)                                                      \
+    do                                                                                         \
+    {                                                                                          \
+        if (!(condition))                                                                      \
+        {                                                                                      \
+            fprintf(stderr, "error - %s:%d - %s - %s\n", __FILE__, __LINE__, function, error); \
+            fflush(stderr);                                                                    \
+            _exit(1);                                                                          \
+        }                                                                                      \
+    } while (0);
+
+static inline uint32_t get_pixel(uint32_t x, uint32_t y)
+{
+    return *(uint32_t *)(mysteryimage_buffer + (y * mysteryimage_stride) + (x * 4));
+}
 
 // Structs
 struct card
@@ -30,17 +46,10 @@ struct renderer
     uint32_t width;
     uint32_t height;
 
-    bool showing_b;
-
-    uint32_t framebuffer_a_handle;
-    uint64_t framebuffer_a_size;
-    uint32_t *framebuffer_a;
-    uint32_t framebuffer_a_id;
-
-    uint32_t framebuffer_b_handle;
-    uint64_t framebuffer_b_size;
-    uint32_t *framebuffer_b;
-    uint32_t framebuffer_b_id;
+    uint32_t framebuffer_handle;
+    uint64_t framebuffer_size;
+    uint32_t *framebuffer;
+    uint32_t framebuffer_id;
 };
 
 // Global vars
@@ -49,16 +58,7 @@ static struct card *cards[32] = {};
 static int renderer_count = 0;
 static struct renderer *renderers[256] = {};
 
-// Static function signatures
-static void init_cards();
-static void cleanup_renderer(struct renderer *renderer);
-static void remove_renderer(int index);
-static void update_renderers();
-static uint32_t get_pixel(uint32_t x, uint32_t y);
-static void render(struct renderer *renderer);
-
-// Working with cards
-static void init_cards()
+void video_init()
 {
     glob_t cards_glob = {};
     if (glob("/dev/dri/card*", 0, NULL, &cards_glob) != 0)
@@ -143,53 +143,7 @@ static void init_cards()
 
 cleanupGlob:
     globfree(&cards_glob);
-}
 
-// Working with renderers
-static void cleanup_renderer(struct renderer *renderer)
-{
-    if (renderer->framebuffer_b_id != 0)
-    {
-        drmModeRmFB(renderer->card->fd, renderer->framebuffer_b_id);
-    }
-    if (renderer->framebuffer_b != NULL)
-    {
-        munmap(renderer->framebuffer_b, renderer->framebuffer_b_size);
-    }
-    if (renderer->framebuffer_b_handle != 0)
-    {
-        struct drm_mode_destroy_dumb destroy_dumb_b = {};
-        destroy_dumb_b.handle = renderer->framebuffer_b_handle;
-        drmIoctl(renderer->card->fd, DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_dumb_b);
-    }
-    if (renderer->framebuffer_a_id != 0)
-    {
-        drmModeRmFB(renderer->card->fd, renderer->framebuffer_a_id);
-    }
-    if (renderer->framebuffer_a != NULL)
-    {
-        munmap(renderer->framebuffer_a, renderer->framebuffer_a_size);
-    }
-    if (renderer->framebuffer_a_handle != 0)
-    {
-        struct drm_mode_destroy_dumb destroy_dumb_a = {};
-        destroy_dumb_a.handle = renderer->framebuffer_a_handle;
-        drmIoctl(renderer->card->fd, DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_dumb_a);
-    }
-    free(renderer);
-}
-static void remove_renderer(int index)
-{
-    cleanup_renderer(renderers[index]);
-    for (int i = index; i < renderer_count - 1; i++)
-    {
-        renderers[i] = renderers[i + 1];
-    }
-    renderer_count--;
-}
-// TODO better hotplug support and handing different monitors on the same connector.
-static void update_renderers()
-{
     for (int i = 0; i < card_count; i++)
     {
         for (int j = 0; j < cards[i]->resources->count_connectors; j++)
@@ -201,7 +155,7 @@ static void update_renderers()
             {
                 if (strcmp(renderers[k]->card->path, cards[i]->path) == 0 && renderers[k]->connector_id == cards[i]->resources->connectors[j])
                 {
-                    goto cleanup;
+                    goto cleanup2;
                 }
             }
 
@@ -215,11 +169,11 @@ static void update_renderers()
             {
                 printf("Video error - drmModeGetConnector failed - %s\n", strerror(errno));
                 fflush(stdout);
-                goto cleanup;
+                goto cleanup2;
             }
             if (connector->connection != DRM_MODE_CONNECTED)
             {
-                goto cleanup;
+                goto cleanup2;
             }
 
             /*
@@ -231,7 +185,7 @@ static void update_renderers()
                 {
                     printf("Video error - drmModeGetConnector failed - %s\n", strerror(errno));
                     fflush(stdout);
-                    goto cleanup;
+                    goto cleanup2;
                 }
                 bound_crtc = encoder->crtc_id;
                 drmModeFreeEncoder(encoder);
@@ -242,7 +196,7 @@ static void update_renderers()
             {
                 printf("Video error - drmModeConnector has no modes\n");
                 fflush(stdout);
-                goto cleanup;
+                goto cleanup2;
             }
             renderer->mode = connector->modes[0];
             for (int j = 1; j < connector->count_modes; j++)
@@ -259,93 +213,61 @@ static void update_renderers()
             renderer->width = renderer->mode.hdisplay;
             renderer->height = renderer->mode.vdisplay;
 
-            struct drm_mode_create_dumb create_dumb_a = {};
-            create_dumb_a.width = renderer->width;
-            create_dumb_a.height = renderer->height;
-            create_dumb_a.bpp = 32;
-            create_dumb_a.flags = 0;
-            if (drmIoctl(renderer->card->fd, DRM_IOCTL_MODE_CREATE_DUMB, &create_dumb_a) != 0)
+            struct drm_mode_create_dumb create_dumb = {};
+            create_dumb.width = renderer->width;
+            create_dumb.height = renderer->height;
+            create_dumb.bpp = 32;
+            create_dumb.flags = 0;
+            if (drmIoctl(renderer->card->fd, DRM_IOCTL_MODE_CREATE_DUMB, &create_dumb) != 0)
             {
                 printf("Video error - DRM_IOCTL_MODE_CREATE_DUMB failed - %s\n", strerror(errno));
                 fflush(stdout);
-                goto cleanup;
+                goto cleanup2;
             }
-            renderer->framebuffer_a_handle = create_dumb_a.handle;
-            renderer->framebuffer_a_size = create_dumb_a.size;
+            renderer->framebuffer_handle = create_dumb.handle;
+            renderer->framebuffer_size = create_dumb.size;
 
-            struct drm_mode_create_dumb create_dumb_b = {};
-            create_dumb_b.width = renderer->width;
-            create_dumb_b.height = renderer->height;
-            create_dumb_b.bpp = 32;
-            create_dumb_b.flags = 0;
-            if (drmIoctl(renderer->card->fd, DRM_IOCTL_MODE_CREATE_DUMB, &create_dumb_b) != 0)
-            {
-                printf("Video error - DRM_IOCTL_MODE_CREATE_DUMB failed - %s\n", strerror(errno));
-                fflush(stdout);
-                goto cleanup;
-            }
-            renderer->framebuffer_b_handle = create_dumb_b.handle;
-            renderer->framebuffer_b_size = create_dumb_b.size;
-
-            struct drm_mode_map_dumb map_dumb_a = {};
-            map_dumb_a.handle = renderer->framebuffer_a_handle;
-            if (drmIoctl(renderer->card->fd, DRM_IOCTL_MODE_MAP_DUMB, &map_dumb_a) != 0)
+            struct drm_mode_map_dumb map_dumb = {};
+            map_dumb.handle = renderer->framebuffer_handle;
+            if (drmIoctl(renderer->card->fd, DRM_IOCTL_MODE_MAP_DUMB, &map_dumb) != 0)
             {
                 printf("Video error - DRM_IOCTL_MODE_MAP_DUMB failed - %s\n", strerror(errno));
                 fflush(stdout);
-                goto cleanup;
+                goto cleanup2;
             }
 
-            struct drm_mode_map_dumb map_dumb_b = {};
-            map_dumb_b.handle = renderer->framebuffer_b_handle;
-            if (drmIoctl(renderer->card->fd, DRM_IOCTL_MODE_MAP_DUMB, &map_dumb_b) != 0)
-            {
-                printf("Video error - DRM_IOCTL_MODE_MAP_DUMB failed - %s\n", strerror(errno));
-                fflush(stdout);
-                goto cleanup;
-            }
-
-            renderer->framebuffer_a = (uint32_t *)mmap(0, renderer->framebuffer_a_size, PROT_READ | PROT_WRITE, MAP_SHARED, renderer->card->fd, map_dumb_a.offset);
-            if (renderer->framebuffer_a == MAP_FAILED)
+            renderer->framebuffer = (uint32_t *)mmap(0, renderer->framebuffer_size, PROT_READ | PROT_WRITE, MAP_SHARED, renderer->card->fd, map_dumb.offset);
+            if (renderer->framebuffer == MAP_FAILED)
             {
                 printf("Video error - mmap failed - %s\n", strerror(errno));
                 fflush(stdout);
-                goto cleanup;
+                goto cleanup2;
             }
-            memset((void *)renderer->framebuffer_a, 0, renderer->framebuffer_a_size);
+            memset((void *)renderer->framebuffer, 0, renderer->framebuffer_size);
 
-            renderer->framebuffer_b = (uint32_t *)mmap(0, renderer->framebuffer_b_size, PROT_READ | PROT_WRITE, MAP_SHARED, renderer->card->fd, map_dumb_b.offset);
-            if (renderer->framebuffer_b == MAP_FAILED)
-            {
-                printf("Video error - mmap failed - %s\n", strerror(errno));
-                fflush(stdout);
-                goto cleanup;
-            }
-            memset((void *)renderer->framebuffer_b, 0, renderer->framebuffer_b_size);
-
-            if (drmModeAddFB(renderer->card->fd, renderer->width, renderer->height, 24, create_dumb_a.bpp, create_dumb_a.pitch, renderer->framebuffer_a_handle, &renderer->framebuffer_a_id) != 0)
+            if (drmModeAddFB(renderer->card->fd, renderer->width, renderer->height, 24, create_dumb.bpp, create_dumb.pitch, renderer->framebuffer_handle, &renderer->framebuffer_id) != 0)
             {
                 printf("Video error - drmModeAddFB failed - %s\n", strerror(errno));
                 fflush(stdout);
-                goto cleanup;
+                goto cleanup2;
             }
 
-            if (drmModeAddFB(renderer->card->fd, renderer->width, renderer->height, 24, create_dumb_b.bpp, create_dumb_b.pitch, renderer->framebuffer_b_handle, &renderer->framebuffer_b_id) != 0)
+            for (uint32_t x = 0; x < renderer->width; x++)
             {
-                printf("Video error - drmModeAddFB failed - %s\n", strerror(errno));
-                fflush(stdout);
-                goto cleanup;
+                for (uint32_t y = 0; y < renderer->height; y++)
+                {
+                    uint32_t scaledX = (x * mysteryimage_width) / renderer->width;
+                    uint32_t scaledY = (y * mysteryimage_height) / renderer->height;
+                    uint32_t mysteryPixel = get_pixel(scaledX, scaledY);
+                    renderer->framebuffer[(y * renderer->width) + x] = mysteryPixel;
+                }
             }
 
-            render(renderer);
-
-            if (drmModeSetCrtc(renderer->card->fd, renderer->crtc_id, renderer->framebuffer_b_id, 0, 0, &renderer->connector_id, 1, &renderer->mode) != 0)
+            if (drmModeSetCrtc(renderer->card->fd, renderer->crtc_id, renderer->framebuffer_id, 0, 0, &renderer->connector_id, 1, &renderer->mode) != 0)
             {
                 printf("Video error - drmModeSetCrtc failed - %s\n", strerror(errno));
                 fflush(stdout);
-                goto cleanup;
             }
-            renderer->showing_b = true;
 
             printf("Video info - Bound to monitor %s\n", renderer->mode.name);
             fflush(stdout);
@@ -354,90 +276,15 @@ static void update_renderers()
             renderer = NULL;
             renderer_count++;
 
-        cleanup:
+        cleanup2:
             if (connector != NULL)
             {
                 drmModeFreeConnector(connector);
             }
-            if (renderer != NULL)
-            {
-                cleanup_renderer(renderer);
-            }
         }
     }
-}
-
-// Loading image data
-static uint32_t get_pixel(uint32_t x, uint32_t y)
-{
-    return *(uint32_t *)(mysteryimage_buffer + (y * mysteryimage_stride) + (x * 4));
-}
-
-static bool flag = true;
-
-// Renderring and presenting
-static void render(struct renderer *renderer)
-{
-    uint32_t *framebuffer;
-    uint32_t framebuffer_id;
-    if (renderer->showing_b)
-    {
-        framebuffer = renderer->framebuffer_a;
-        framebuffer_id = renderer->framebuffer_a_id;
-    }
-    else
-    {
-        framebuffer = renderer->framebuffer_b;
-        framebuffer_id = renderer->framebuffer_b_id;
-    }
-
-    if (flag) {
-    for (uint32_t x = 0; x < renderer->width; x++)
-    {
-        for (uint32_t y = 0; y < renderer->height; y++)
-        {
-            uint32_t scaledX = (x * mysteryimage_width) / renderer->width;
-            uint32_t scaledY = (y * mysteryimage_height) / renderer->height;
-            uint32_t mysteryPixel = get_pixel(scaledX, scaledY);
-            framebuffer[(y * renderer->width) + x] = mysteryPixel;
-        }
-    }
-    }
-
-    if (drmModePageFlip(renderer->card->fd, renderer->crtc_id, framebuffer_id, 0, NULL) == 0)
-    {
-        /*
-        printf("Video error - drmModePageFlip failed - %s - falling back to drmModeSetCrtc \n", strerror(errno));
-        fflush(stdout);
-        if (drmModeSetCrtc(renderer->card->fd, renderer->crtc_id, framebuffer_id, 0, 0, &renderer->connector_id, 1, &renderer->mode) != 0)
-        {
-            printf("Video error - drmModeSetCrtc failed - %s\n", strerror(errno));
-            fflush(stdout);
-        }
-        */
-        renderer->showing_b = !renderer->showing_b;
-    }
-
-}
-
-// Basic control flow
-void video_init()
-{
-    init_cards();
-    update_renderers();
 }
 void video_update()
 {
-    for (int i = 0; i < renderer_count; i++)
-    {
-        render(renderers[i]);
-    }
-    //flag = false;
-}
-void video_cleanup()
-{
-    if (false)
-    {
-        remove_renderer(0);
-    }
+
 }

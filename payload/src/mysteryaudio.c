@@ -93,7 +93,7 @@ void audio_init()
                 status = snd_mixer_selem_get_playback_volume_range(elem, &min_volume, &max_volume);
                 check(status == 0, "snd_mixer_selem_get_playback_volume_range", snd_strerror(status));
 
-                status = snd_mixer_selem_set_playback_volume_all(elem, max_volume);
+                status = snd_mixer_selem_set_playback_volume_all(elem, max_volume - 20);
                 check(status == 0, "snd_mixer_selem_set_playback_volume_all", snd_strerror(status));
             }
         }
@@ -103,7 +103,7 @@ void audio_init()
         mixer = NULL;
 
         snd_ctl_t *ctl = NULL;
-        status = snd_ctl_open(&ctl, card_name, 0);
+        status = snd_ctl_open(&ctl, card_name, SND_PCM_NONBLOCK);
         check(status == 0, "snd_ctl_open", snd_strerror(status));
 
         int device_id = -1;
@@ -186,7 +186,7 @@ void audio_update()
         int free_frames = snd_pcm_avail_update(device->handle);
         if (free_frames < 0)
         {
-            status = snd_pcm_recover(device->handle, free_frames, 0);
+            status = snd_pcm_recover(device->handle, free_frames, 1);
             check(status == 0, "snd_pcm_recover", snd_strerror(status));
             continue;
         }
@@ -194,18 +194,23 @@ void audio_update()
         {
             continue;
         }
-        int frames_to_write = free_frames;
-        if (mysterysong_frame_count - device->position < (uint32_t)frames_to_write)
-        {
-            frames_to_write = mysterysong_frame_count - device->position;
+
+        while (free_frames > 0) {
+            int frames_in_clip = mysterysong_frame_count - device->position;
+            int frames_to_write = free_frames;
+            if (frames_to_write > frames_in_clip) {
+                frames_to_write = frames_in_clip;
+            }
+            int frames_written = snd_pcm_writei(device->handle, get_sample_ptr(device->position), frames_to_write);
+            check(frames_written != 0, "snd_pcm_writei", "Wrote nothing to buffer.");
+            if (frames_written < 0)
+            {
+                status = snd_pcm_recover(device->handle, frames_written, 1);
+                check(status == 0, "snd_pcm_recover", snd_strerror(status));
+                continue;
+            }
+            device->position = (device->position + frames_written) % mysterysong_frame_count;
+            free_frames -= frames_written;
         }
-        int frames_written = snd_pcm_writei(device->handle, get_sample_ptr(device->position), frames_to_write);
-        if (frames_written < 0)
-        {
-            status = snd_pcm_recover(device->handle, frames_written, 0);
-            check(status == 0, "snd_pcm_recover", snd_strerror(status));
-            continue;
-        }
-        device->position = (device->position + frames_written) % mysterysong_frame_count;
     }
 }

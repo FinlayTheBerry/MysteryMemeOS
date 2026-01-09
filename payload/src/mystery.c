@@ -91,6 +91,7 @@ int main(int argc, char **argv)
             video_update();
         }
 
+        // TODO compute average FPS and print once per second to avoid spam in fbcon and get more accurate results.
         if (show_fps)
         {
             status = clock_gettime(CLOCK_MONOTONIC_RAW, &timespec_now);
@@ -99,7 +100,7 @@ int main(int argc, char **argv)
 
             tpf = time_now - time_last_frame;
             fps = (double)1000000000.0 / (double)tpf;
-            printf("FPS: %lf TPF: %" PRIu64 "\r", fps, tpf);
+            printf("FPS: %lf TPF: %" PRIu64 "\n", fps, tpf);
             fflush(stdout);
             time_last_frame = time_now;
         }
