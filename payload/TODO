@@ -1,4 +1,1 @@
-Polish and optimize mysteryaudio
-mysteryaudio requires only the following:
-A kernel with modules loaded to support the audio output hardware with alsa.
-/proc and /dev to be mounted.
+Polish MysteryVideo

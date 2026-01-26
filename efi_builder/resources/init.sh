@@ -7,9 +7,7 @@ reboot_sysrq() {
     sleep 1
     echo "o" >/proc/sysrq-trigger
     echo "Target Reached - Reboot Requested"
-    while true; do
-        :
-    done
+    while true; do :; done
 }
 
 devmod() {
@@ -31,9 +29,7 @@ export PATH="/usr/bin"
 mount -t proc proc /proc -o noatime,nodiratime,norelatime,nodev,noexec,nosuid
 mount -t sysfs sys /sys -o noatime,nodiratime,norelatime,nodev,noexec,nosuid
 mount -t devtmpfs dev /dev -o noatime,nodiratime,norelatime,noexec,nosuid
-if [ -e /sys/firmware/efi ]; then
-    mount -t efivarfs efivarfs /sys/firmware/efi/efivars -o noatime,nodiratime,norelatime,nodev,noexec,nosuid
-fi
+mount -t efivarfs efivarfs /sys/firmware/efi/efivars -o noatime,nodiratime,norelatime,nodev,noexec,nosuid
 echo "0" >/proc/sys/kernel/ctrl-alt-del
 echo "0" >/proc/sys/kernel/sysrq
 /usr/bin/depmod --all

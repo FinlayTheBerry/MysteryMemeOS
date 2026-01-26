@@ -9,7 +9,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <errno.h>
-#include <inttypes.h>
+#include <stdint.h>
 
 #define check(condition, function, error)                                                      \
     do                                                                                         \
@@ -30,6 +30,8 @@ static void exit_sig(int sig)
 
 int main(int argc, char **argv)
 {
+    int status = 0;
+
     bool no_audio = false;
     bool no_video = false;
     bool show_fps = false;
@@ -66,19 +68,16 @@ int main(int argc, char **argv)
     {
         video_init();
     }
-
-    int status = 0;
-    struct timespec timespec_now = {0};
-    uint64_t time_last_frame = 0;
-    uint64_t time_now = 0;
-    uint64_t tpf = 0;
-    double fps = 0.0;
+    
+    uint64_t ticks_last_print = 0;
+    uint32_t frames_count = 0;
 
     if (show_fps)
     {
+        struct timespec timespec_now = {0};
         status = clock_gettime(CLOCK_MONOTONIC_RAW, &timespec_now);
         check(status == 0, "clock_gettime", strerror(errno));
-        time_last_frame = ((uint64_t)timespec_now.tv_sec * (uint64_t)1000000000) + (uint64_t)timespec_now.tv_nsec;
+        ticks_last_print = ((uint64_t)timespec_now.tv_sec * (uint64_t)1000000000) + (uint64_t)timespec_now.tv_nsec;
     }
     while (true)
     {
@@ -91,18 +90,23 @@ int main(int argc, char **argv)
             video_update();
         }
 
-        // TODO compute average FPS and print once per second to avoid spam in fbcon and get more accurate results.
         if (show_fps)
         {
+            frames_count++;
+
+            struct timespec timespec_now = {0};
             status = clock_gettime(CLOCK_MONOTONIC_RAW, &timespec_now);
             check(status == 0, "clock_gettime", strerror(errno));
-            time_now = ((uint64_t)timespec_now.tv_sec * (uint64_t)1000000000) + (uint64_t)timespec_now.tv_nsec;
+            uint64_t time_now = ((uint64_t)timespec_now.tv_sec * (uint64_t)1000000000) + (uint64_t)timespec_now.tv_nsec;
 
-            tpf = time_now - time_last_frame;
-            fps = (double)1000000000.0 / (double)tpf;
-            printf("FPS: %lf TPF: %" PRIu64 "\n", fps, tpf);
-            fflush(stdout);
-            time_last_frame = time_now;
+            if (time_now - ticks_last_print >= 1000000000)
+            {
+                double fps = ((double)1000000000.0 * (double)frames_count) / (double)(time_now - ticks_last_print);
+                printf("FPS: %lf\n", fps);
+                fflush(stdout);
+                frames_count = 0;
+                ticks_last_print = time_now;
+            }
         }
     }
 }
