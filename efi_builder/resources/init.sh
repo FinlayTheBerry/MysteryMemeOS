@@ -18,6 +18,7 @@ devmod() {
             modules=$(/usr/bin/modprobe --quiet --resolve-alias "$alias" 2>/dev/null)
             if [ -n "$modules" ]; then
                 for module in $modules; do
+                    echo "Loading $module"
                     /usr/bin/modprobe "$module" 1>/dev/null 2>&1
                 done
             fi
@@ -34,5 +35,8 @@ echo "0" >/proc/sys/kernel/ctrl-alt-del
 echo "0" >/proc/sys/kernel/sysrq
 /usr/bin/depmod --all
 devmod
+
+/usr/bin/ash
+
 mystery
 reboot_sysrq

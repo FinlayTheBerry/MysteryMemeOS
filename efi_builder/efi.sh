@@ -6,7 +6,7 @@ mkdir -p ./obj
 compress="true"
 
 # copy mystery and init script
-cp ../payload/build/bin/mystery ./obj/cpio/usr/bin/mystery
+cp ../payload/bin/mystery ./obj/cpio/usr/bin/mystery
 chmod 700 ./obj/cpio/usr/bin/mystery
 cp ./resources/init.sh ./obj/cpio/init
 chmod 700 ./obj/cpio/init
@@ -18,7 +18,7 @@ cd ../../
 
 # Compress image
 if [[ "$compress" == "true" ]]; then
-    gzip -f -k ./obj/mystery.img
+    zstd -22 --ultra -T0 ./obj/mystery.img
 fi
 
 # Build uki efi file
@@ -27,7 +27,7 @@ echo "Cmdline=splash quite" >> ./obj/ukify.conf
 echo "splash=./resources/splash.bmp" >> ./obj/ukify.conf
 echo "Linux=$(realpath ./obj/vmlinuz)" >> ./obj/ukify.conf
 if [[ "$compress" == "true" ]]; then
-    echo "Initrd=$(realpath ./obj/mystery.img.gz)" >> ./obj/ukify.conf
+    echo "Initrd=$(realpath ./obj/mystery.img.zst)" >> ./obj/ukify.conf
 else
     echo "Initrd=$(realpath ./obj/mystery.img)" >> ./obj/ukify.conf
 fi

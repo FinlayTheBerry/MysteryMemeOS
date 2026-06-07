@@ -36,9 +36,6 @@ mv "./usr/lib/modules/$(uname -r)/vmlinuz" ../vmlinuz
 depmod -a --basedir="./" --moduledir="./usr/lib/modules"
 cp -r ../../resources/firmware ./usr/lib/firmware
 
-# Copy libasound config files
-cp -r ../../../payload/build/libalsa/build/share/* ./usr/share/
-
 # Copy programs but save init and mystery for later
 cp "$(which busybox)" ./usr/bin/busybox
 chmod 700 ./usr/bin/busybox
@@ -60,4 +57,8 @@ cp /usr/lib/libz.so.1 ./usr/lib/libz.so.1
 cp /usr/lib/libcrypto.so.3 ./usr/lib/libcrypto.so.3
 cp /usr/lib/libgcc_s.so.1 ./usr/lib/libgcc_s.so.1
 cp /usr/lib/libc.so.6 ./usr/lib/libc.so.6
+cp /usr/lib/libbrotlienc.so.1 ./usr/lib/libbrotlienc.so.1
+cp /usr/lib/libbrotlidec.so.1 ./usr/lib/libbrotlidec.so.1
 cp /usr/lib64/ld-linux-x86-64.so.2 ./usr/lib64/ld-linux-x86-64.so.2
+cp /usr/lib/libm.so.6 ./usr/lib/libm.so.6
+cp /usr/lib/libbrotlicommon.so.1 ./usr/lib/libbrotlicommon.so.1
