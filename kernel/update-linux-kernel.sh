@@ -39,10 +39,10 @@ echo ""
 echo "tar --zstd -cf ./linux-kernel.tar.zst ./linux-kernel"
 tar --zstd -cf ./linux-kernel.tar.zst ./linux-kernel
 
-#rm ./linux-kernel-src.tar.xz
-#rm -r ./linux-kernel-src
-#rm -r ./linux-kernel
+rm ./linux-kernel-src.tar.xz
+rm -r ./linux-kernel-src
+rm -r ./linux-kernel
 
-echo "
+echo ""
 echo "Done!"
 echo ""
