@@ -36,7 +36,8 @@ echo "0" >/proc/sys/kernel/sysrq
 /usr/bin/depmod --all
 devmod
 
-/usr/bin/ash
+echo mpv --vo=drm --loop-file=inf --ao=alsa --audio-device="alsa/default:CARD=Generic" /rickroll.mkv
+ash
+mpv --vo=drm --loop-file=inf --ao=alsa --audio-device="alsa/default:CARD=Generic" /rickroll.mkv
 
-mystery
 reboot_sysrq

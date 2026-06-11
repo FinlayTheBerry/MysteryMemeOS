@@ -10,6 +10,8 @@ cp ../payload/bin/mystery ./obj/cpio/usr/bin/mystery
 chmod 700 ./obj/cpio/usr/bin/mystery
 cp ./resources/init.sh ./obj/cpio/init
 chmod 700 ./obj/cpio/init
+cp ./resources/rickrollmini.mkv ./obj/cpio/rickroll.mkv
+chmod 700 ./obj/cpio/rickroll.mkv
 
 # Generate cpio image
 cd ./obj/cpio
@@ -18,7 +20,7 @@ cd ../../
 
 # Compress image
 if [[ "$compress" == "true" ]]; then
-    zstd -22 --ultra -T0 ./obj/mystery.img
+    zstd ./obj/mystery.img # -22 --ultra -T0
 fi
 
 # Build uki efi file
@@ -32,3 +34,7 @@ else
     echo "Initrd=$(realpath ./obj/mystery.img)" >> ./obj/ukify.conf
 fi
 ukify -c ./obj/ukify.conf build -o ./obj/mystery.efi
+
+meson setup .. \
+  --buildtype=minsize \
+  -Ddefault_library=static \

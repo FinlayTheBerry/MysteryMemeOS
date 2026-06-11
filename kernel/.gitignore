@@ -1,8 +1,10 @@
 /linux-firmware-src/
 /linux-firmware/
 /linux-firmware.tar.zst
+/linux-firmware-trimmed.tar.zst
 
 /linux-kernel-src.tar.xz
 /linux-kernel-src/
 /linux-kernel/
 /linux-kernel.tar.zst
+/linux-kernel-trimmed.tar.zst
