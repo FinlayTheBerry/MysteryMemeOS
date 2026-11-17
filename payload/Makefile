@@ -51,7 +51,7 @@ assets:
 	@echo 'Cloning LibDrm...'
 	@git clone https://gitlab.freedesktop.org/mesa/libdrm.git ./lib/libdrm_git
 	@echo 'Building LibDrm...'
-	@cd ./lib/libdrm_git && CC='$(abspath $(CC))' CFLAGS='-static' meson setup ./ninja --reconfigure --prefix='/' --default-library=static -Dintel=disabled -Dradeon=disabled -Damdgpu=disabled -Dnouveau=disabled -Dvmwgfx=disabled -Detnaviv=disabled -Dfreedreno=disabled -Dexynos=disabled -Domap=disabled -Dtegra=disabled -Dcairo-tests=disabled -Dvalgrind=disabled -Dman-pages=disabled
+	@cd ./lib/libdrm_git && CC='$(abspath $(CC))' CFLAGS='-static' meson setup ./ninja --reconfigure --prefix='/' --default-library=static -Dintel=disabled -Dradeon=disabled -Damdgpu=disabled -Dnouveau=disabled -Dvmwgfx=disabled -Detnaviv=disabled -Dexynos=disabled -Domap=disabled -Dtegra=disabled -Dcairo-tests=disabled -Dvalgrind=disabled -Dman-pages=disabled
 	@cd ./lib/libdrm_git && ninja -j$(shell nproc) -C ./ninja
 	@cd ./lib/libdrm_git && DESTDIR='$(abspath ./lib/libdrm)' ninja -C ./ninja install
 	@rm -rf ./lib/libdrm_git/

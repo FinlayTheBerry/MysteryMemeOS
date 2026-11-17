@@ -1,40 +1,39 @@
 #!/bin/bash
-set -euo pipefail
+set -euox pipefail
 cd "$(dirname "$(realpath "$0")")"
 
 # Reset for new generation
 mkdir -p ./obj
 rm -rf ./obj/vmlinuz
-#rm -rf ./obj/cpio
-#mkdir -p ./obj/cpio
+rm -rf ./obj/cpio
+mkdir -p ./obj/cpio
 cd ./obj/cpio
 
 # Create mount points
-#mkdir -p -m 700 ./proc
-#mkdir -p -m 700 ./sys
-#mkdir -p -m 700 ./dev
+mkdir -p -m 700 ./proc
+mkdir -p -m 700 ./sys
+mkdir -p -m 700 ./dev
 
 # Create basic file structure
-#mkdir -p -m 700 ./usr/bin
-#mkdir -p -m 700 ./usr/share
-#mkdir -p -m 700 ./usr/lib
+mkdir -p -m 700 ./usr/bin
+mkdir -p -m 700 ./usr/share
+mkdir -p -m 700 ./usr/lib
 
 # Make symlinks
-#ln -s usr/bin ./bin
-#ln -s usr/bin ./sbin
-#ln -s bin ./usr/sbin
-#ln -s usr/share ./share
-#ln -s usr/lib ./lib
-#ln -s usr/lib ./lib64
-#ln -s lib ./usr/lib64
+ln -s usr/bin ./bin
+ln -s usr/bin ./sbin
+ln -s bin ./usr/sbin
+ln -s usr/share ./share
+ln -s usr/lib ./lib
+ln -s usr/lib ./lib64
+ln -s lib ./usr/lib64
 
 # Copy and extract kernel modules and kernel
-file vmlinuz | grep -oP 'version \K[^ ]+'
 mkdir -p -m 700 ./usr/lib/modules
 cp -r "/usr/lib/modules/$(uname -r)/" "./usr/lib/modules/$(uname -r)/"
 mv "./usr/lib/modules/$(uname -r)/vmlinuz" ../vmlinuz
 depmod -a --basedir="./" --moduledir="./usr/lib/modules"
-cp -r ../../resources/firmware ./usr/lib/firmware
+cp -r /usr/lib/firmware/ ./usr/lib/firmware
 
 # Copy programs but save init and mystery for later
 cp "$(which busybox)" ./usr/bin/busybox
@@ -62,4 +61,3 @@ cp /usr/lib/libbrotlidec.so.1 ./usr/lib/libbrotlidec.so.1
 cp /usr/lib64/ld-linux-x86-64.so.2 ./usr/lib64/ld-linux-x86-64.so.2
 cp /usr/lib/libm.so.6 ./usr/lib/libm.so.6
 cp /usr/lib/libbrotlicommon.so.1 ./usr/lib/libbrotlicommon.so.1
-

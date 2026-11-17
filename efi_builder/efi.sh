@@ -1,5 +1,5 @@
 #!/bin/bash
-set -euo pipefail
+set -euox pipefail
 cd "$(dirname "$(realpath "$0")")"
 mkdir -p ./obj
 
@@ -10,8 +10,6 @@ cp ../payload/bin/mystery ./obj/cpio/usr/bin/mystery
 chmod 700 ./obj/cpio/usr/bin/mystery
 cp ./resources/init.sh ./obj/cpio/init
 chmod 700 ./obj/cpio/init
-cp ./resources/rickrollmini.mkv ./obj/cpio/rickroll.mkv
-chmod 700 ./obj/cpio/rickroll.mkv
 
 # Generate cpio image
 cd ./obj/cpio
@@ -34,7 +32,3 @@ else
     echo "Initrd=$(realpath ./obj/mystery.img)" >> ./obj/ukify.conf
 fi
 ukify -c ./obj/ukify.conf build -o ./obj/mystery.efi
-
-meson setup .. \
-  --buildtype=minsize \
-  -Ddefault_library=static \

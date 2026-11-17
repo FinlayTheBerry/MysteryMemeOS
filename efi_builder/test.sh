@@ -1,5 +1,5 @@
 #!/bin/bash
-set -euo pipefail
+set -euox pipefail
 cd "$(dirname "$(realpath "$0")")"
 
 cp /usr/share/edk2-ovmf/x64/OVMF_VARS.4m.fd ./obj/OVMF_VARS.4m.fd
