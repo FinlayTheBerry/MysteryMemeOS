@@ -1,0 +1,31 @@
+#!/usr/bin/busybox ash
+
+reboot_sysrq() {
+    echo "1" >/proc/sys/kernel/sysrq
+    echo "e" >/proc/sysrq-trigger
+    echo "s" >/proc/sysrq-trigger
+    echo "u" >/proc/sysrq-trigger
+    sleep 1
+    echo "o" >/proc/sysrq-trigger
+    echo "Target Reached - Reboot Requested"
+    while true; do :; done
+}
+
+load_modules() {
+    while IFS= read -r modulePath; do
+        insmod "$modulePath"
+    done < modlist
+}
+
+export PATH="/usr/bin"
+mount -t proc proc /proc -o noatime,nodiratime,norelatime,nodev,noexec,nosuid
+mount -t sysfs sys /sys -o noatime,nodiratime,norelatime,nodev,noexec,nosuid
+mount -t devtmpfs dev /dev -o noatime,nodiratime,norelatime,noexec,nosuid
+mount -t efivarfs efivarfs /sys/firmware/efi/efivars -o noatime,nodiratime,norelatime,nodev,noexec,nosuid
+echo "0" >/proc/sys/kernel/ctrl-alt-del
+echo "0" >/proc/sys/kernel/sysrq
+load_modules
+
+ash
+
+reboot_sysrq

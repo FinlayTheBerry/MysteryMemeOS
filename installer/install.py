@@ -62,7 +62,7 @@ def GetEpoch():
     return time.time()
 def FormatEpoch(epoch):
     if epoch == float("inf") or epoch == float("-inf"):
-        return "NONE_TIME"
+        return "NaN"
     timestamp = datetime.datetime.fromtimestamp(epoch)
     return timestamp.strftime("%I:%M%p %m/%d").lower()
 def RunCommand(command, echo=False, capture=False, noerr=False, input=None, check=True, env=None):
@@ -99,74 +99,162 @@ def GetKernelDir():
     with open("/proc/sys/kernel/osrelease") as f:
         unamer = f.read().strip()
         return f"/usr/lib/modules/{unamer}"
+def FormatBytes(count):
+    units = [ "TB", "GB", "MB", "KB" ]
+    for i in range(len(units)):
+        threshold = 1024 ** (len(units) - i)
+        if count >= threshold:
+            return f"{count / threshold:.01f}{units[i]}"
+    return str(count)
 
 def ParseProcModules(modulesFilePath="/proc/modules"):
     output = []
     with open(modulesFilePath) as f:
         for line in f.read().strip().splitlines():
-            mod_name, mem_size, ref_count, dependencies, load_state, mem_offset = line.split(" ")[:6]
+            modName, memSize, refCount, dependencies, loadState, memOffset = line.split(" ")[:6]
             dependencies = [] if dependencies == "-" else dependencies.removesuffix(",").split(",")
-            output.append({ "mod_name": mod_name, "mem_size": mem_size, "ref_count": ref_count, "dependencies": dependencies, "load_state": load_state, "mem_offset": mem_offset })
+            output.append({ "modName": modName, "memSize": memSize, "refCount": refCount, "dependencies": dependencies, "loadState": loadState, "memOffset": memOffset })
     return output
 def SortModules(modules):
+    modulesByName = { module['modName']: module for module in modules }
     sortedModules = []
-    for module in modules:
-        inserted = False
-        dependencies = module['dependencies'][:]
-        for i in range(len(sortedModules)):
-            if sortedModules[i]['mod_name'] in dependencies:
-                dependencies.remove(sortedModules[i]['mod_name'])
-            if len(dependencies) == 0:
-                inserted = True
-                sortedModules.insert(i, module)
-                break
-        if not inserted:
+    def insertMod(module):
+        for dependencyName in module['dependencies']:
+            if dependencyName in modulesByName:
+                insertMod(modulesByName[dependencyName])
+        if module['modName'] in modulesByName:
+            del modulesByName[module['modName']]
             sortedModules.append(module)
+    while(len(modulesByName) > 0):
+        insertMod(list(modulesByName.values())[0])
     return sortedModules
-def AddModuleFilePaths(modules, modulesDepFilePath=None):
-    kernel_dir = GetKernelDir()
+def AddModuleFilePaths(modules, kernelDir=None):
     modules = copy.deepcopy(modules)
-    if modulesDepFilePath == None:
-        modulesDepFilePath = os.path.join(kernel_dir, "modules.dep")
-    mod_paths = {}
+    if kernelDir == None:
+        kernelDir = GetKernelDir()
+    modulesDepFilePath = os.path.join(kernelDir, "modules.dep")
+    modPaths = {}
     with open(modulesDepFilePath) as f:
         modulesDep = f.read().strip()
-        for file_path in modulesDep.splitlines():
-            file_path = os.path.join(kernel_dir, file_path.partition(":")[0])
-            file_mod_name = os.path.basename(file_path).partition(".")[0].replace("-", "_")
-            mod_paths[file_mod_name] = file_path
+        for filePath in modulesDep.splitlines():
+            filePath = os.path.join(kernelDir, filePath.partition(":")[0])
+            fileModName = os.path.basename(filePath).partition(".")[0].replace("-", "_")
+            modPaths[fileModName] = filePath
     for module in modules:
-        if not module['mod_name'] in mod_paths:
-            raise Exception(f"Matching file path could not be found for module {module['mod_name']}.")
+        if not module['modName'] in modPaths:
+            raise Exception(f"Matching file path could not be found for module {module['modName']}.")
         else:
-            module['file_path'] = mod_paths[module['mod_name']]
+            module['filePath'] = modPaths[module['modName']]
     return modules
 
-def ParseLoadedFirmware(firmwareBaseDir="/usr/lib/firmware"):
+def ParseLoadedFirmware(firmwareDir="/usr/lib/firmware"):
     firmwares = []
     dmesg = RunCommand("dmesg", capture=True)
     for line in dmesg.splitlines():
         if " Loaded FW: " in line:
-            file_path = glob.glob(os.path.join(firmwareBaseDir, f"{line.split(' ')[8].removesuffix(',')}*"))[0]
-            in_mem_hash = line.split(" ")[10].removesuffix(",")
-            firmwares.append({ "file_path": file_path, "in_mem_hash": in_mem_hash })
+            line = line.partition(" Loaded FW: ")[2]
+            firmwareName = line.split(" ")[0].removesuffix(',')
+            filePath = glob.glob(os.path.join(firmwareDir, f"{firmwareName}*"))[0]
+            inMemHash = line.split(" ")[2].removesuffix(",")
+            firmwares.append({ "filePath": filePath, "inMemHash": inMemHash })
     return firmwares
+
+def InstallBase(baseDirPath):
+    InstallDirectory(baseDirPath)
+    
+    InstallDirectory(os.path.join(baseDirPath, "proc"))
+    InstallDirectory(os.path.join(baseDirPath, "sys"))
+    InstallDirectory(os.path.join(baseDirPath, "dev"))
+
+    InstallDirectory(os.path.join(baseDirPath, "usr"))
+    InstallDirectory(os.path.join(baseDirPath, "usr/bin"))
+    InstallDirectory(os.path.join(baseDirPath, "usr/lib"))
+    
+    RunCommand(f"ln -s usr/bin \'{os.path.join(baseDirPath, 'bin')}\'")
+    RunCommand(f"ln -s usr/bin \'{os.path.join(baseDirPath, 'sbin')}\'")
+    RunCommand(f"ln -s bin \'{os.path.join(baseDirPath, 'usr/sbin')}\'")
+    RunCommand(f"ln -s usr/lib \'{os.path.join(baseDirPath, 'lib')}\'")
+    RunCommand(f"ln -s usr/lib \'{os.path.join(baseDirPath, 'lib64')}\'")
+    RunCommand(f"ln -s lib \'{os.path.join(baseDirPath, 'usr/lib64')}\'")
+
+kernelDir = GetKernelDir()
+firmwareDir="/usr/lib/firmware"
 
 modules = ParseProcModules()
 modules = SortModules(modules)
-modules = AddModuleFilePaths(modules)
+modules = AddModuleFilePaths(modules, kernelDir=kernelDir)
 
-firmwares = ParseLoadedFirmware()
+firmwares = ParseLoadedFirmware(firmwareDir=firmwareDir)
 
-modules_size = 0
+InstallBase("./cpio")
+
+InstallDirectory("./cpio/usr/lib/modules")
+modList = ""
+modulesSize = 0
 for module in modules:
-    modules_size += os.stat(module['file_path']).st_size
+    modulesSize += os.stat(module['filePath']).st_size
 
-firmware_size = 0
+    relPath = os.path.relpath(module['filePath'], kernelDir)
+    
+    dirPath = os.path.dirname(relPath)
+    InstallDirectory(os.path.join("./cpio/usr/lib/modules", dirPath), andParents=True)
+    
+    targetPath = os.path.join('./cpio/usr/lib/modules', relPath)
+    if targetPath.endswith(".zst"):
+        targetPath = targetPath.removesuffix(".zst")
+        RunCommand(f"zstd -d \'{module['filePath']}\' -o \'{targetPath}\'")
+    else:
+        RunCommand(f"cp \'{module['filePath']}\' \'{targetPath}\'")
+    modList += targetPath.removeprefix("./cpio") + "\n"
+InstallFile("./cpio/modlist", modList)
+
+InstallDirectory("./cpio/usr/lib/firmware")
+firmwaresSize = 0
 for firmware in firmwares:
-    firmware_size += os.stat(firmware['file_path']).st_size
+    firmwaresSize += os.stat(firmware['filePath']).st_size
 
-kernel_size = os.stat(os.path.join(GetKernelDir(), "vmlinuz")).st_size
+    relPath = os.path.relpath(firmware['filePath'], firmwareDir)
+    
+    dirPath = os.path.dirname(relPath)
+    InstallDirectory(os.path.join("./cpio/usr/lib/firmware", dirPath), andParents=True)
 
-total = modules_size + firmware_size + kernel_size
-print(f"modules: {modules_size / (1024 * 1024):.1f}MB, firmware: {firmware_size / (1024 * 1024):.1f}MB, kernel: {kernel_size / (1024 * 1024):.1f}MB, total: {total / (1024 * 1024):.1f}MB")
+    targetPath = os.path.join('./cpio/usr/lib/firmware', relPath)
+    if targetPath.endswith(".zst"):
+        targetPath = targetPath.removesuffix(".zst")
+        RunCommand(f"zstd -d \'{firmware['filePath']}\' -o \'{targetPath}\'")
+    else:
+        RunCommand(f"cp \'{firmware['filePath']}\' \'{targetPath}\'")
+
+kernelPath = os.path.join(GetKernelDir(), "vmlinuz")
+kernelSize = os.stat(kernelPath).st_size
+
+busyboxSize = os.stat("/usr/bin/busybox").st_size
+RunCommand(f"cp \'/usr/bin/busybox\' \'./cpio/usr/bin/busybox\'")
+for appletName in RunCommand("busybox --list", capture=True).splitlines():
+    targetPath = os.path.join('./cpio/usr/bin', appletName)
+    if not os.path.exists(targetPath):
+        RunCommand(f"ln -s busybox \'{os.path.join('./cpio/usr/bin', appletName)}\'")
+
+mysterySize = os.stat("./mystery").st_size
+RunCommand(f"cp \'./mystery\' \'./cpio/mystery\'")
+
+initSize = os.stat("./init").st_size
+RunCommand(f"cp \'./init\' \'./cpio/init\'")
+
+totalSize = modulesSize + firmwaresSize + kernelSize + busyboxSize + mysterySize + initSize
+
+print(f"modules: {FormatBytes(modulesSize)}, firmware: {FormatBytes(firmwaresSize)}, kernel: {FormatBytes(kernelSize)}, busybox: {FormatBytes(busyboxSize)}, mystery: {FormatBytes(mysterySize)}, init: {FormatBytes(initSize)}, total: {FormatBytes(totalSize)}")
+
+RunCommand(f"cd cpio && find . -print | cpio -ov --format=newc --owner=+0:+0 --file='../mystery.img'", echo=True)
+
+RunCommand(f"zstd mystery.img", echo=True)
+
+ukifyConf = f"""[UKI]
+Cmdline=quite
+Linux={kernelPath}
+Initrd=mystery.img.zst
+"""
+InstallFile("ukify.conf", ukifyConf)
+RunCommand(f"ukify -c ukify.conf build -o mystery.efi", echo=True)
+
+print("Done!")
